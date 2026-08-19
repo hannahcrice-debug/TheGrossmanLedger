@@ -228,6 +228,18 @@ select,input[type=text],input[type=date],textarea{
 .empty{text-align:center;padding:40px 20px;color:var(--ink-soft);}
 .empty h3{color:var(--ink);margin-bottom:6px;}
 
+.modal-overlay{
+  position:fixed;inset:0;background:rgba(32,48,43,0.55);
+  display:flex;align-items:center;justify-content:center;padding:20px;z-index:100;
+}
+.modal-box{
+  background:var(--paper-raised);border-radius:12px;padding:22px;max-width:420px;width:100%;
+  box-shadow:0 8px 30px rgba(0,0,0,0.25);
+}
+.modal-box h3{margin-bottom:8px;}
+.modal-body label{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);display:block;margin:10px 0 4px;}
+.modal-body select, .modal-body input[type=text], .modal-body input[type=date]{width:100%;}
+
 .loading{display:flex;align-items:center;justify-content:center;min-height:60vh;font-family:'Fraunces',serif;font-size:16px;color:var(--ink-soft);}
 .toast{
   position:fixed;bottom:18px;left:50%;transform:translateX(-50%);
@@ -337,6 +349,7 @@ function defaultState(){
     switches: [],
     completions: [],
     offers: [],
+    appliedMigrations: [],
   };
 }
 
@@ -394,11 +407,19 @@ function freeChoreFromPairOrAssignment(choreId){
   delete state.assignments[choreId];
   delete state.switchRotation[choreId];
   delete state.choreSwitchConfig[choreId];
-  const pair = state.pairs.find(p => (p.a===choreId || p.b===choreId) && pairStatus(p)==='pending');
+  state.draft.picks = state.draft.picks.filter(p=>p.choreId!==choreId);
+  const pair = state.pairs.find(p => p.a===choreId || p.b===choreId);
   if(pair){
-    const partnerId = pair.a===choreId ? pair.b : pair.a;
-    delete state.assignments[partnerId];
-    delete state.switchRotation[partnerId];
+    const status = pairStatus(pair);
+    if(status==='pending'){
+      // no decision made yet on this pair — dissolve it and free the partner too
+      const partnerId = pair.a===choreId ? pair.b : pair.a;
+      delete state.assignments[partnerId];
+      delete state.switchRotation[partnerId];
+      state.draft.picks = state.draft.picks.filter(p=>p.choreId!==partnerId);
+    }
+    // whether pending, split, or tied: drop the stale pair record so it stops
+    // showing a decision banner for a chore that's no longer part of it
     state.pairs = state.pairs.filter(p=>p.id!==pair.id);
     delete state.votes[pair.id];
   }
@@ -419,6 +440,7 @@ function runMigrations(){
   if(!state.choreSwitchConfig) state.choreSwitchConfig={};
   if(!state.switchRotation) state.switchRotation={};
   if(!state.offers) state.offers=[];
+  if(!state.appliedMigrations) state.appliedMigrations=[];
 
   state.pairs.forEach(p=>{
     if(p.switchEnabled===undefined) p.switchEnabled = !!p.bigChore;
@@ -440,10 +462,15 @@ function runMigrations(){
     oldMed.details = 'Schedule and attend medical appointments for Sterling and yourselves';
   }
 
-  forcePair('c46','c54', {});   // Medical Appointments vs Dental Appointments
-  forcePair('c47','c53', {});   // School Communication & Forms vs Childcare Coverage Planning
-  forceDefaultSwitch('c55','Hannah'); // Date Night Planning — alternates by turn
-  forceDefaultSwitch('c56','Trent');  // Family Outing / Weekend Activity Planning — alternates by turn
+  const applyOnce = (key, fn) => {
+    if(state.appliedMigrations.includes(key)) return;
+    fn();
+    state.appliedMigrations.push(key);
+  };
+  applyOnce('pair-medical-dental', ()=>forcePair('c46','c54', {}));       // Medical Appointments vs Dental Appointments
+  applyOnce('pair-school-childcare', ()=>forcePair('c47','c53', {}));      // School Communication & Forms vs Childcare Coverage Planning
+  applyOnce('switch-date-night', ()=>forceDefaultSwitch('c55','Hannah')); // Date Night Planning — alternates by turn
+  applyOnce('switch-family-outing', ()=>forceDefaultSwitch('c56','Trent')); // Family Outing / Weekend Activity Planning — alternates by turn
 
   ensureAllChoresPaired();
 }
@@ -577,9 +604,9 @@ function currentDraftPlayer(){
   if(!state.draft.started) return null;
   return state.draft.turnIndex % 2 === 0 ? state.draft.firstPlayer : otherPerson(state.draft.firstPlayer);
 }
-function switchesThisMonth(person){
+function switchesThisMonth(person, choreId){
   const mk = monthKey(todayISO());
-  return state.switches.filter(s=> s.requestedBy===person && monthKey(s.date)===mk).length;
+  return state.switches.filter(s=> s.requestedBy===person && monthKey(s.date)===mk && (!choreId || s.choreId===choreId)).length;
 }
 function lastCompletion(choreId){
   const entries = state.completions.filter(e=>e.choreId===choreId).sort((a,b)=>b.date.localeCompare(a.date));
@@ -618,7 +645,19 @@ function render(){
     </div>
     <div id="tab-content">${renderTab()}</div>
     <div class="footer-note muted small">The Grossman Ledger &middot; weight = annoyance &times; frequency &middot; everything below is yours to edit</div>
+    ${modal ? renderModal() : ''}
   `;
+}
+let modal = null; // session only, not persisted — {title, bodyHtml}
+function showModal(title, bodyHtml){ modal = {title, bodyHtml}; render(); }
+function closeModal(){ modal = null; render(); }
+function renderModal(){
+  return `<div class="modal-overlay" onclick="if(event.target===this) closeModal()">
+    <div class="modal-box">
+      <h3>${modal.title}</h3>
+      <div class="modal-body">${modal.bodyHtml}</div>
+    </div>
+  </div>`;
 }
 function tabBtn(id,label,badge,onlyIfPositive){
   const show = badge!==undefined && (!onlyIfPositive || badge>0);
@@ -647,6 +686,7 @@ function renderHeader(){
         <span>Viewing as</span>
         <button class="who-btn hannah ${currentUser==='Hannah'?'active':''}" onclick="setUser('Hannah')">Hannah</button>
         <button class="who-btn trent ${currentUser==='Trent'?'active':''}" onclick="setUser('Trent')">Trent</button>
+        <button class="who-btn" title="Pull the latest saved changes — there's no live sync between devices" onclick="refreshFromStorage()">↻</button>
       </div>
     </div>
     <div class="beam-wrap">
@@ -738,8 +778,8 @@ function renderChoresTab(){
       }
       html += `<div class="chore-row">
         <div>
-          <div class="chore-name">${c.name}</div>
-          <div class="chore-details">${c.details||''}${c.notes?` &middot; ${c.notes}`:''}</div>
+          <div class="chore-name">${escAttr(c.name)}</div>
+          <div class="chore-details">${escAttr(c.details||'')}${c.notes?` &middot; ${escAttr(c.notes)}`:''}</div>
         </div>
         <div><select onchange="editChore('${c.id}','annoyance',this.value)">${[1,2,3,4].map(n=>`<option value="${n}" ${c.annoyance==n?'selected':''}>${n} — ${ANNOYANCE_LABELS[n]}</option>`).join('')}</select></div>
         <div><select onchange="editChore('${c.id}','cadence',this.value)">${Object.keys(CADENCE).map(k=>`<option value="${k}" ${c.cadence===k?'selected':''}>${CADENCE[k].label}</option>`).join('')}</select></div>
@@ -803,20 +843,45 @@ function sendToDraft(choreId){
   toast('Sent straight to the draft pool');
 }
 function deleteChore(id){
-  if(!confirm('Delete this chore for good?')) return;
+  const c = choreById(id);
+  if(!c) return;
+  showModal('Delete this chore?', `
+    <p class="small">"${escAttr(c.name)}" will be removed for good, along with its history.</p>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="btn danger small" onclick="doDeleteChore('${id}')">Delete</button>
+      <button class="btn ghost small" onclick="closeModal()">Cancel</button>
+    </div>
+  `);
+}
+function doDeleteChore(id){
   mutate(()=>{
     state.chores = state.chores.filter(c=>c.id!==id);
     delete state.assignments[id];
     delete state.switchRotation[id];
     delete state.choreSwitchConfig[id];
+    const removedPairs = state.pairs.filter(p=>p.a===id || p.b===id);
     state.pairs = state.pairs.filter(p=>p.a!==id && p.b!==id);
+    removedPairs.forEach(p=>delete state.votes[p.id]);
     state.completions = state.completions.filter(e=>e.choreId!==id);
     state.switches = state.switches.filter(s=>s.choreId!==id);
+    state.draft.picks = state.draft.picks.filter(p=>p.choreId!==id);
+    state.offers.forEach(o=>{ o.takeMe=o.takeMe.filter(x=>x!==id); o.takeThem=o.takeThem.filter(x=>x!==id); });
   });
+  closeModal();
 }
-async function resetAll(){
-  if(!confirm('This wipes every chore, vote, draft pick, and tracker entry back to the starting ledger. Continue?')) return;
+function resetAll(){
+  showModal('Reset all ledger data?', `
+    <p class="small">This wipes every chore, vote, draft pick, trade, and tracker entry back to the starting ledger. This can't be undone.</p>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="btn danger small" onclick="doResetAll()">Reset everything</button>
+      <button class="btn ghost small" onclick="closeModal()">Cancel</button>
+    </div>
+  `);
+}
+async function doResetAll(){
   state = defaultState();
+  runMigrations();
+  closeModal();
   render();
   await saveState();
 }
@@ -828,8 +893,8 @@ function renderPairsTab(){
     <h3>Set up a head-to-head</h3>
     <p class="muted small">Every chore lives in some head-to-head so far — new chores you add will show up here to pair off, or you can leave them for the draft.</p>
     <div class="add-form" style="grid-template-columns:1.3fr 1.3fr 1fr 0.8fr auto;">
-      <div><label>Option A</label><select id="pf-a">${unpairedChoices.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')}</select></div>
-      <div><label>Option B</label><select id="pf-b">${unpairedChoices.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')}</select></div>
+      <div><label>Option A</label><select id="pf-a">${unpairedChoices.map(c=>`<option value="${c.id}">${escAttr(c.name)}</option>`).join('')}</select></div>
+      <div><label>Option B</label><select id="pf-b">${unpairedChoices.map(c=>`<option value="${c.id}">${escAttr(c.name)}</option>`).join('')}</select></div>
       <div><label>Allow switch days?</label><select id="pf-switch"><option value="0">No</option><option value="1">Yes</option></select></div>
       <div><label>Switches / month</label><input type="text" id="pf-switch-n" value="2"/></div>
       <div style="align-self:end;"><button class="btn" onclick="createPair()">Create pair</button></div>
@@ -866,8 +931,8 @@ function renderPairCard(pair){
   const optCard = (chore, side) => {
     const myPick = currentUser && v[currentUser] === chore.id;
     return `<div class="vote-opt ${myPick?'picked':''}">
-      <div class="vname">${chore.name}</div>
-      <div class="vdet">${chore.details||''}${chore.notes?` &middot; ${chore.notes}`:''}</div>
+      <div class="vname">${escAttr(chore.name)}</div>
+      <div class="vdet">${escAttr(chore.details||'')}${chore.notes?` &middot; ${escAttr(chore.notes)}`:''}</div>
       <div class="mono small" style="margin-top:6px;">${choreTotal(chore)} pts &middot; ${CADENCE[chore.cadence].label}</div>
       ${status==='pending' ? `<div style="margin-top:8px;"><button class="btn small ${currentUser==='Hannah'?'hannah':currentUser==='Trent'?'trent':''}" ${!currentUser?'disabled':''} onclick="castVote('${pair.id}','${chore.id}')">${myPick?'Picked ✓':'Choose this'}</button></div>` : ''}
     </div>`;
@@ -880,7 +945,7 @@ function renderPairCard(pair){
   </div>`;
 
   if(status==='split'){
-    body += `<div class="result-banner split">Split decision — ${v.Hannah==pair.a?'Hannah':'Trent'} takes "${a.name}," ${v.Hannah==pair.a?'Trent':'Hannah'} takes "${b.name}."</div>`;
+    body += `<div class="result-banner split">Split decision — ${v.Hannah==pair.a?'Hannah':'Trent'} takes "${escAttr(a.name)}," ${v.Hannah==pair.a?'Trent':'Hannah'} takes "${escAttr(b.name)}."</div>`;
   } else if(status==='tied'){
     body += `<div class="result-banner tie">Both picked the same one — both chores move into the draft pool instead.</div>`;
   }
@@ -896,13 +961,13 @@ function renderPairCard(pair){
     body += `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn ghost small" onclick="startEditPair('${pair.id}')">Change matchup</button>
       ${status!=='pending' ? `<button class="btn ghost small" onclick="reopenPair('${pair.id}')">Reopen for voting</button>` : ''}
-      <button class="btn ghost small" onclick="sendToDraft('${a.id}')">Send "${a.name}" to draft instead</button>
-      <button class="btn ghost small" onclick="sendToDraft('${b.id}')">Send "${b.name}" to draft instead</button>
+      <button class="btn ghost small" onclick="sendToDraft('${a.id}')">Send "${escAttr(a.name)}" to draft instead</button>
+      <button class="btn ghost small" onclick="sendToDraft('${b.id}')">Send "${escAttr(b.name)}" to draft instead</button>
     </div>`;
   }
 
   return `<div class="card pair-card">
-    <h3>${a.name} <span class="muted small">vs.</span> ${b.name}</h3>
+    <h3>${escAttr(a.name)} <span class="muted small">vs.</span> ${escAttr(b.name)}</h3>
     ${body}
   </div>`;
 }
@@ -922,7 +987,7 @@ function pairCandidateChores(pair){
 }
 function renderPairEditForm(pair){
   const candidates = pairCandidateChores(pair);
-  const opts = current => candidates.map(ch=>`<option value="${ch.id}" ${ch.id===current?'selected':''}>${ch.name}</option>`).join('');
+  const opts = current => candidates.map(ch=>`<option value="${ch.id}" ${ch.id===current?'selected':''}>${escAttr(ch.name)}</option>`).join('');
   return `<div class="add-form" style="grid-template-columns:1fr 1fr auto auto;margin-top:10px;">
     <div><label>Option A</label><select id="pe-a">${opts(pair.a)}</select></div>
     <div><label>Option B</label><select id="pe-b">${opts(pair.b)}</select></div>
@@ -1040,7 +1105,7 @@ function renderDraftTab(){
     html += `<div class="pool-grid">`;
     pool.forEach(c=>{
       html += `<div class="pool-card">
-        <div class="pname">${c.name}</div>
+        <div class="pname">${escAttr(c.name)}</div>
         <div class="pmeta">${c.category} &middot; ${CADENCE[c.cadence].label} &middot; ${choreTotal(c)} pts</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
           <button class="btn small ${turn==='Hannah'?'hannah':'trent'}" ${canPick?'':'disabled'} onclick="draftPick('${c.id}')">Take it</button>
@@ -1059,7 +1124,7 @@ function renderDraftTab(){
       <h3>Pick log</h3>
       ${state.draft.picks.slice().reverse().map((p,i)=>{
         const c = choreById(p.choreId);
-        return `<div class="pick-log-row"><span>#${state.draft.picks.length-i} — ${c?c.name:'(removed chore)'}</span><span class="mono">${p.by}</span></div>`;
+        return `<div class="pick-log-row"><span>#${state.draft.picks.length-i} — ${c?escAttr(c.name):'(removed chore)'}</span><span class="mono">${p.by}</span></div>`;
       }).join('')}
     </div>`;
   }
@@ -1084,7 +1149,7 @@ function draftPick(choreId){
 let showOfferForm = false; // session only, not persisted
 function choreNameList(ids){
   if(!ids || !ids.length) return 'nothing';
-  return ids.map(id=>{ const c=choreById(id); return c?c.name:'(removed chore)'; }).join(', ');
+  return ids.map(id=>{ const c=choreById(id); return c?escAttr(c.name):'(removed chore)'; }).join(', ');
 }
 function renderOffers(pool){
   let html = '';
@@ -1124,7 +1189,7 @@ function renderOffers(pool){
 }
 function renderOfferForm(pool){
   const partner = otherPerson(currentUser);
-  const checkbox = (prefix, c) => `<label class="offer-check"><input type="checkbox" id="${prefix}-${c.id}"/> ${c.name} <span class="mono muted">${choreTotal(c)}pt</span></label>`;
+  const checkbox = (prefix, c) => `<label class="offer-check"><input type="checkbox" id="${prefix}-${c.id}"/> ${escAttr(c.name)} <span class="mono muted">${choreTotal(c)}pt</span></label>`;
   return `<div class="card offer-card form">
     <h3>Propose a trade</h3>
     <p class="muted small">Check what you'll take and what you want ${partner} to take in return — one side can be empty if it's just a gift.</p>
@@ -1191,30 +1256,57 @@ function cancelOffer(offerId){
 function assignBoth(choreId){
   const c = choreById(choreId);
   if(!c) return;
-  if(!confirm(`Mark "${c.name}" as a shared chore that you both do — instead of picking a single owner?`)) return;
+  showModal('Mark as a shared chore?', `
+    <p class="small">"${escAttr(c.name)}" will show up on both of your Trackers instead of having one owner.</p>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="btn small" onclick="doAssignBoth('${choreId}')">Mark as shared</button>
+      <button class="btn ghost small" onclick="closeModal()">Cancel</button>
+    </div>
+  `);
+}
+function doAssignBoth(choreId){
   mutate(()=>{
     freeChoreFromPairOrAssignment(choreId);
     state.assignments[choreId] = 'Both';
     state.draft.picks.push({choreId, by:'Both', at:new Date().toISOString()});
   });
+  closeModal();
   toast('Marked as shared — it will show up for both of you');
 }
 function assignSwitchOff(choreId){
   const c = choreById(choreId);
   if(!c) return;
-  const start = confirm(`Alternate "${c.name}" between you two. OK = start with Hannah, Cancel = start with Trent.`) ? 'Hannah' : 'Trent';
-  const byTurn = confirm('OK = alternate by turn — flips to the other person each time either of you marks it done (good for things without a fixed schedule, like date night). Cancel = alternate on a fixed weekly/monthly schedule instead.');
+  showModal('Alternate this chore', `
+    <p class="small">Set up "${escAttr(c.name)}" to switch between you two.</p>
+    <label>Who starts?</label>
+    <select id="so-start"><option value="Hannah">Hannah</option><option value="Trent">Trent</option></select>
+    <label>Switch it…</label>
+    <select id="so-mode">
+      <option value="occurrence">By turn — flips after each time it's marked done</option>
+      <option value="calendar-7">On a fixed weekly schedule</option>
+      <option value="calendar-30">On a fixed monthly schedule</option>
+    </select>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="btn small" onclick="doAssignSwitchOff('${choreId}')">Set it up</button>
+      <button class="btn ghost small" onclick="closeModal()">Cancel</button>
+    </div>
+  `);
+}
+function doAssignSwitchOff(choreId){
+  const start = document.getElementById('so-start').value;
+  const modeVal = document.getElementById('so-mode').value;
   mutate(()=>{
     freeChoreFromPairOrAssignment(choreId);
     state.assignments[choreId] = 'Switch';
-    if(byTurn){
+    if(modeVal==='occurrence'){
       state.switchRotation[choreId] = {mode:'occurrence', startPerson:start};
     } else {
-      const period = confirm('OK = swap every week. Cancel = swap every month.') ? 7 : 30;
+      const period = modeVal==='calendar-7' ? 7 : 30;
       state.switchRotation[choreId] = {mode:'calendar', startPerson:start, periodDays:period, anchorDate: todayISO()};
     }
     state.draft.picks.push({choreId, by:`Alternating (starts ${start})`, at:new Date().toISOString()});
   });
+  closeModal();
   toast('Set to alternate — the tracker will show whose turn it is');
 }
 
@@ -1251,11 +1343,11 @@ function renderTrackerTab(){
                     : owner==='Switch' ? `<span class="pill owner-switch">Alternating</span>` : '';
       html += `<div class="tchore">
         <div class="tchore-top">
-          <div><span class="status-dot ${ds.cls}"></span><strong>${c.name}</strong> ${modeTag}</div>
+          <div><span class="status-dot ${ds.cls}"></span><strong>${escAttr(c.name)}</strong> ${modeTag}</div>
           <button class="check-btn ${done?'checked':''}" onclick="toggleComplete('${c.id}')">${done?'Done today ✓':'Mark done'}</button>
         </div>
-        <div class="muted small" style="margin-top:4px;">${CADENCE[c.cadence].label}${c.notes?` &middot; ${c.notes}`:''}</div>
-        ${sw ? `<div class="switch-row" style="color:var(--gold);font-weight:600;">Today ${sw.to} is covering this for ${sw.from}${sw.note?` — ${sw.note}`:''}</div>` : ''}
+        <div class="muted small" style="margin-top:4px;">${CADENCE[c.cadence].label}${c.notes?` &middot; ${escAttr(c.notes)}`:''}</div>
+        ${sw ? `<div class="switch-row" style="color:var(--gold);font-weight:600;">Today ${sw.to} is covering this for ${sw.from}${sw.note?` — ${escAttr(sw.note)}`:''}</div>` : ''}
         ${owner===person ? renderSwitchRow(c, person) : ''}
       </div>`;
     });
@@ -1267,7 +1359,7 @@ function renderTrackerTab(){
 function renderSwitchRow(chore, person){
   const cfg = state.choreSwitchConfig[chore.id];
   if(!cfg || !cfg.enabled) return '';
-  const remaining = (cfg.perMonth||2) - switchesThisMonth(person);
+  const remaining = (cfg.perMonth||2) - switchesThisMonth(person, chore.id);
   return `<div class="switch-row">
     <span>${remaining} switch${remaining===1?'':'es'} left this month</span>
     <button class="btn ghost small" ${remaining<=0 || currentUser!==person ? 'disabled':''} onclick="openSwitch('${chore.id}')">Request switch</button>
@@ -1277,12 +1369,27 @@ function openSwitch(choreId){
   if(!currentUser){ toast('Pick who you are first'); return; }
   const owner = state.assignments[choreId];
   if(currentUser !== owner){ toast('Only the current owner can request a switch'); return; }
-  const date = prompt('Cover for which date? (YYYY-MM-DD, give advance notice)', todayISO());
-  if(!date) return;
-  const note = prompt('Any note for the switch? (optional)') || '';
+  const c = choreById(choreId);
+  showModal('Request a switch day', `
+    <p class="small">Have ${escAttr(otherPerson(owner))} cover "${escAttr(c?c.name:'')}" on a specific date.</p>
+    <label>Date</label>
+    <input type="date" id="sw-date" value="${todayISO()}"/>
+    <label>Note (optional)</label>
+    <input type="text" id="sw-note" placeholder="Anything to flag"/>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="btn small" onclick="doOpenSwitch('${choreId}')">Log switch</button>
+      <button class="btn ghost small" onclick="closeModal()">Cancel</button>
+    </div>
+  `);
+}
+function doOpenSwitch(choreId){
+  const owner = state.assignments[choreId];
+  const date = document.getElementById('sw-date').value || todayISO();
+  const note = document.getElementById('sw-note').value.trim();
   mutate(()=>{
     state.switches.push({id:'s'+Date.now(), choreId, date, from:owner, to:otherPerson(owner), note, requestedBy:owner, requestedAt:new Date().toISOString()});
   });
+  closeModal();
   toast('Switch logged');
 }
 function toggleComplete(choreId){
@@ -1299,6 +1406,10 @@ async function retryStorage(){
   toast('Trying again…');
   await saveState();
   render();
+}
+async function refreshFromStorage(){
+  toast('Checking for updates…');
+  await loadState();
 }
 
 /* ============================== BOOT ============================== */
