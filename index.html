@@ -1,0 +1,1308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>The Grossman Ledger</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700;9..144,900&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root{
+  --ink:#20302B;
+  --ink-soft:#4A5C56;
+  --paper:#EFEAD9;
+  --paper-raised:#F8F5EA;
+  --line:#D8D0B8;
+  --gold:#B98A2B;
+  --hannah:#C1552C;
+  --hannah-soft:#F0DACE;
+  --trent:#2E6E62;
+  --trent-soft:#D9E7E2;
+  --danger:#A8402C;
+  --radius:10px;
+  --shadow:0 1px 2px rgba(32,48,43,0.08), 0 4px 14px rgba(32,48,43,0.06);
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font-family:'Inter',sans-serif;
+  min-height:100vh;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3,h4{font-family:'Fraunces',serif;margin:0;font-weight:700;letter-spacing:-0.01em;}
+.mono{font-family:'IBM Plex Mono',monospace;}
+button{font-family:'Inter',sans-serif;cursor:pointer;}
+:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
+@media (prefers-reduced-motion:reduce){*{transition:none !important;animation:none !important;}}
+
+.app{max-width:980px;margin:0 auto;padding:20px 18px 80px;}
+
+/* ---------- Header / Ledger band ---------- */
+.ledger-band{
+  background:var(--ink);
+  color:var(--paper);
+  border-radius:16px;
+  padding:22px 24px 18px;
+  box-shadow:var(--shadow);
+  margin-bottom:18px;
+}
+.ledger-top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;}
+.ledger-title{font-size:28px;line-height:1.05;}
+.ledger-title .accent{color:#D9C98A;font-style:italic;}
+.ledger-sub{font-size:12.5px;color:#B9C7C1;margin-top:4px;letter-spacing:.02em;}
+.who-switch{display:flex;gap:8px;align-items:center;}
+.who-switch span{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#9FB0A9;margin-right:2px;}
+.who-btn{
+  border:1.5px solid rgba(255,255,255,0.25);
+  background:transparent;
+  color:#EFEAD9;
+  padding:7px 14px;
+  border-radius:30px;
+  font-size:13.5px;
+  font-weight:600;
+  transition:all .15s ease;
+}
+.who-btn.hannah.active{background:var(--hannah);border-color:var(--hannah);color:#fff;}
+.who-btn.trent.active{background:var(--trent);border-color:var(--trent);color:#fff;}
+.who-btn:not(.active):hover{border-color:rgba(255,255,255,0.55);}
+
+/* Fairness beam */
+.beam-wrap{display:flex;align-items:center;gap:22px;margin-top:18px;flex-wrap:wrap;}
+.beam-svg{flex:0 0 auto;}
+.beam-readout{display:flex;gap:22px;flex-wrap:wrap;}
+.beam-stat{min-width:120px;}
+.beam-stat .name{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#9FB0A9;}
+.beam-stat .pts{font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:600;}
+.beam-stat.hannah .pts{color:#E8956F;}
+.beam-stat.trent .pts{color:#7FC1B2;}
+.beam-note{font-size:12px;color:#B9C7C1;max-width:220px;}
+
+/* ---------- Tabs ---------- */
+.tabs{display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap;}
+.tab-btn{
+  background:var(--paper-raised);
+  border:1px solid var(--line);
+  padding:9px 16px;
+  border-radius:999px;
+  font-size:13.5px;
+  font-weight:600;
+  color:var(--ink-soft);
+}
+.tab-btn.active{background:var(--ink);color:var(--paper);border-color:var(--ink);}
+.tab-btn .badge{
+  display:inline-block;margin-left:6px;background:var(--gold);color:#20302B;
+  font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:10px;
+}
+
+/* ---------- Cards / sections ---------- */
+.card{
+  background:var(--paper-raised);
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  padding:18px;
+  margin-bottom:14px;
+  box-shadow:var(--shadow);
+}
+.card h3{font-size:17px;margin-bottom:2px;}
+.section-title{display:flex;align-items:baseline;gap:10px;margin:26px 0 10px;}
+.section-title h2{font-size:19px;}
+.section-title .tally{flex:1;border-bottom:2px dotted var(--line);height:0;margin-bottom:5px;}
+.section-title .count{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-soft);}
+
+.muted{color:var(--ink-soft);font-size:13px;}
+.small{font-size:12.5px;}
+
+/* Chore table -> becomes cards on mobile */
+.chore-row{
+  display:grid;
+  grid-template-columns:1.6fr 0.6fr 0.6fr 0.9fr 1.4fr auto;
+  gap:10px;
+  align-items:center;
+  padding:11px 6px;
+  border-bottom:1px solid var(--line);
+  font-size:13px;
+}
+.chore-row.head{font-weight:700;text-transform:uppercase;font-size:10.5px;letter-spacing:.06em;color:var(--ink-soft);}
+.chore-name{font-weight:600;}
+.chore-details{color:var(--ink-soft);font-size:12px;margin-top:2px;}
+.pill{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600;}
+.pill.cat{background:#E4DEC7;color:#5A5236;}
+.pill.owner-hannah{background:var(--hannah-soft);color:var(--hannah);}
+.pill.owner-trent{background:var(--trent-soft);color:var(--trent);}
+.pill.owner-both{background:#E4DEC7;color:#5A5236;}
+.pill.owner-switch{background:#F0E4D2;color:#8A6412;}
+.pill.owner-none{background:#E4DEC7;color:var(--ink-soft);}
+select,input[type=text],input[type=date],textarea{
+  font-family:'Inter',sans-serif;
+  border:1px solid var(--line);
+  border-radius:6px;
+  padding:5px 7px;
+  font-size:13px;
+  background:#fff;
+  color:var(--ink);
+  width:100%;
+}
+.total-chip{font-family:'IBM Plex Mono',monospace;font-weight:600;background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:4px 8px;text-align:center;}
+.btn{
+  border:none;border-radius:7px;padding:8px 14px;font-size:13px;font-weight:600;
+  background:var(--ink);color:var(--paper);
+}
+.btn:hover{opacity:.92;}
+.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--ink);}
+.btn.danger{background:var(--danger);color:#fff;}
+.btn.hannah{background:var(--hannah);color:#fff;}
+.btn.trent{background:var(--trent);color:#fff;}
+.btn:disabled{opacity:.4;cursor:not-allowed;}
+.btn.small{padding:5px 10px;font-size:12px;}
+.icon-btn{background:transparent;border:none;color:var(--ink-soft);font-size:13px;padding:4px 6px;}
+.icon-btn:hover{color:var(--danger);}
+
+.add-form{display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:8px;margin-top:10px;}
+.add-form .full{grid-column:1/-1;}
+.add-form label{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);display:block;margin-bottom:3px;}
+.edit-row{grid-template-columns:1fr !important;background:#FBF6E8;border-radius:8px;padding:12px 10px;}
+.edit-row label{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);display:block;margin-bottom:3px;}
+.edit-row .full{margin-bottom:8px;}
+.edit-grid{display:grid;grid-template-columns:1fr 1.4fr 1.4fr;gap:8px;}
+@media(max-width:700px){.edit-grid{grid-template-columns:1fr;}}
+
+/* Pairs / voting */
+.pair-card{border-left:4px solid var(--gold);}
+.vote-options{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px;}
+.vote-opt{
+  border:2px solid var(--line);border-radius:10px;padding:14px;background:#fff;
+  transition:all .15s ease;
+}
+.vote-opt:hover{border-color:var(--ink);}
+.vote-opt.picked{border-color:var(--gold);background:#FBF3DE;}
+.vote-opt .vname{font-family:'Fraunces',serif;font-weight:700;font-size:15px;margin-bottom:4px;}
+.vote-opt .vdet{font-size:12px;color:var(--ink-soft);line-height:1.4;}
+.vote-status-row{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap;}
+.vote-marker{font-size:12px;padding:4px 10px;border-radius:20px;background:var(--paper);border:1px solid var(--line);}
+.vote-marker.done{background:#DCE9E1;border-color:#9CC4AB;}
+.result-banner{margin-top:12px;padding:10px 12px;border-radius:8px;font-size:13px;font-weight:600;}
+.result-banner.split{background:#E3ECE8;color:var(--trent);}
+.result-banner.tie{background:#F0E4D2;color:#8A6412;}
+.switch-config{margin-top:12px;padding-top:10px;border-top:1px dashed var(--line);font-size:12.5px;color:var(--ink-soft);display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.switch-config input[type=text]{display:inline-block;width:44px;padding:3px 6px;}
+.offer-card{border-left:4px solid var(--gold);}
+.offer-card.incoming{border-left-color:var(--trent);}
+.offer-card.outgoing{border-left-color:var(--hannah);}
+.offer-col-label{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);margin-bottom:6px;}
+.offer-check{display:flex;gap:6px;align-items:center;font-size:12.5px;margin-bottom:5px;}
+.offer-check .mono{margin-left:auto;}
+
+/* Draft */
+.turn-banner{
+  padding:14px 18px;border-radius:10px;margin-bottom:16px;font-size:15px;font-weight:700;
+  display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;
+}
+.pool-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;}
+.pool-card{
+  background:#fff;border:1.5px solid var(--line);border-radius:10px;padding:12px;text-align:left;
+}
+.pool-card .pname{font-family:'Fraunces',serif;font-weight:700;font-size:14.5px;}
+.pool-card .pmeta{font-size:11px;color:var(--ink-soft);margin:4px 0 8px;}
+.pick-log{margin-top:16px;}
+.pick-log-row{display:flex;justify-content:space-between;font-size:12.5px;padding:6px 4px;border-bottom:1px dashed var(--line);}
+
+/* Tracker */
+.tracker-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+@media(max-width:700px){.tracker-cols{grid-template-columns:1fr;} .chore-row{grid-template-columns:1fr;} .add-form{grid-template-columns:1fr 1fr;}}
+.person-col{border-top:5px solid var(--line);border-radius:10px;background:var(--paper-raised);padding:14px;}
+.person-col.hannah{border-top-color:var(--hannah);}
+.person-col.trent{border-top-color:var(--trent);}
+.person-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;}
+.tchore{background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:8px;}
+.tchore-top{display:flex;justify-content:space-between;align-items:center;gap:8px;}
+.status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px;}
+.status-dot.due{background:var(--danger);}
+.status-dot.ok{background:#5B9E7F;}
+.status-dot.neutral{background:#B9AF8F;}
+.check-btn{border:1.5px solid var(--line);background:#fff;border-radius:6px;padding:4px 10px;font-size:12px;font-weight:600;}
+.check-btn.checked{background:#DCE9E1;border-color:#5B9E7F;color:#2E6E62;}
+.switch-row{margin-top:6px;font-size:11.5px;color:var(--ink-soft);display:flex;justify-content:space-between;align-items:center;}
+
+.empty{text-align:center;padding:40px 20px;color:var(--ink-soft);}
+.empty h3{color:var(--ink);margin-bottom:6px;}
+
+.loading{display:flex;align-items:center;justify-content:center;min-height:60vh;font-family:'Fraunces',serif;font-size:16px;color:var(--ink-soft);}
+.toast{
+  position:fixed;bottom:18px;left:50%;transform:translateX(-50%);
+  background:var(--ink);color:var(--paper);padding:10px 18px;border-radius:8px;font-size:13px;
+  box-shadow:var(--shadow);z-index:50;opacity:0;pointer-events:none;transition:opacity .25s ease;
+}
+.toast.show{opacity:1;}
+.select-first{font-size:12px;color:var(--danger);font-weight:600;margin-top:6px;}
+.footer-note{text-align:center;margin-top:30px;}
+.storage-banner{
+  background:#3A1F1A;color:#F3D9CE;border:1px solid #6B392B;border-radius:10px;
+  padding:12px 16px;margin-bottom:14px;font-size:13px;display:flex;justify-content:space-between;
+  align-items:center;gap:12px;flex-wrap:wrap;
+}
+.storage-banner button{background:#F3D9CE;color:#3A1F1A;border:none;border-radius:6px;padding:6px 12px;font-weight:600;font-size:12.5px;}
+</style>
+</head>
+<body>
+<div class="app" id="app"><div class="loading">Opening the ledger…</div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================== DATA MODEL ============================== */
+const CADENCE = {
+  daily:        {label:'Daily',            weight:5},
+  everyOtherDay:{label:'Every Other Day',  weight:4},
+  weekly:       {label:'Weekly',           weight:3},
+  biweekly:     {label:'Biweekly',         weight:2},
+  monthly:      {label:'Monthly',          weight:1},
+  asNeeded:     {label:'As Needed',        weight:1},
+};
+const CADENCE_DUE_DAYS = {daily:1, everyOtherDay:2, weekly:7, biweekly:14, monthly:30, asNeeded:null};
+const ANNOYANCE_LABELS = {1:'Low',2:'Medium',3:'High',4:'Maximum'};
+const CATEGORIES = ['Household','Kitchen & Meals','Sterling','Pets','Plants','Admin'];
+const PEOPLE = ['Hannah','Trent'];
+
+function defaultChores(){
+  const c = (id,name,category,annoyance,cadence,details,notes)=>({id,name,category,annoyance,cadence,details:details||'',notes:notes||''});
+  return [
+    c('c1',"Clarence's Water & Food",'Pets',1,'daily',"Refill Clarence's water & food"),
+    c('c2','Clean & Condition Leather','Household',1,'monthly','Wipe down couch and coffee table with leather cleaner and conditioner','3rd Friday of the month'),
+    c('c3','Clean Floors','Household',1,'everyOtherDay','Clean all downstairs floors'),
+    c('c4','Clean Kitchen','Kitchen & Meals',1,'daily','Wipe down counters and stove, pick up random items, etc.','Nightly'),
+    c('c5','Clean Screens / Windows','Household',2,'biweekly','Clean TV screens and downstairs windows'),
+    c('c6','Cook Dinner','Kitchen & Meals',2,'daily','Manage shopping list and cook dinner','Most nights of the week'),
+    c('c7','Dishes','Kitchen & Meals',2,'daily','Pick up all dishes around the house, then fill & empty the dishwasher'),
+    c('c8','Finances / Bills','Admin',1,'monthly','Manage bank account & ensure bills are being paid','5th, 15th, and 29th of the month'),
+    c('c9','Grocery Shopping / Meal Services','Kitchen & Meals',1,'weekly',"Manage shopping list (incl. Sterling's food)","Order meal service every Monday; grocery shop every Friday"),
+    c('c10','Household Replenishment','Household',1,'weekly','Refill hand soap, toilet paper, diapers, etc.','Refill every Thursday; note items for Friday grocery run'),
+    c('c11','Household Services Management','Admin',1,'asNeeded','Coordinate cleaners, pest control, misc. household services'),
+    c('c12','Laundry — Household','Household',3,'weekly','Bath towels, dish towels, bibs, etc.','Every Thursday'),
+    c('c13','Laundry — Sterling','Sterling',3,'weekly',"Includes bedding / diaper area laundry",'Every Thursday'),
+    c('c14','Mail','Household',1,'weekly','Pick up and manage mail, including tossing garbage mail'),
+    c('c15','Pickup After Clarence','Pets',4,'weekly','Pick up poop in the backyard'),
+    c('c16','Pickup After Self','Household',1,'daily','Pick up and put your own stuff away, including in the bedroom','Throughout the day'),
+    c('c17','Take Trash Out On Garbage Day','Household',2,'weekly','Take down and bring up garbage bins on garbage day'),
+    c('c18','Tidy / Clean Backyard Patio','Household',3,'weekly','Sweep, dust off couch, clear off table, etc.'),
+    c('c19','Tidy / Clean Garage','Household',2,'weekly','Sweep garage, tidy up workbench, etc.'),
+    c('c20','Tidy Living Room Area','Household',1,'daily',"Pick up and put away Sterling's toys, clear dining table, wipe surfaces",'Nightly'),
+    c('c21',"Tidy Sterling's Room",'Sterling',1,'weekly','Put away toys, change diaper station cover, change bedding, replenish diaper area','Every Friday & Sunday'),
+    c('c22','Trash / Cardboard','Household',3,'daily','Take out garbage & break down boxes, incl. backyard trash'),
+    c('c23','Water Plants / Manage Ella','Plants',2,'weekly',"Water indoor plants, refill Ella's water, trim plants",'Every Sunday; incl. outdoor potted plants'),
+    c('c24','Wipe Down Playmat / Rotate Toys','Sterling',1,'weekly',"Change out Sterling's toys and wipe down the playmat",'Every Sunday'),
+    c('c25','Plant Food / Fertilizing','Plants',1,'monthly','Apply fertilizer to indoor plants and potted outdoor plants','1st of the month'),
+    c('c26','Backyard Pond Maintenance','Plants',2,'weekly','Check pond plants & water level, skim debris, top off water'),
+    c('c27','Bird Daily Feed & Water Refill','Pets',1,'daily','Refill pellets/seed and fresh water for all birds'),
+    c('c28','Bird Fresh / Soft Food Prep','Pets',2,'daily','Prep fresh soft food mix (cooked bean & corn base + veg/fruit)'),
+    c('c29','Bird Cage Cleaning','Pets',3,'weekly','Clean cage liners, wipe perches & dishes, deep-clean bars'),
+    c('c30','Bird Out-of-Cage Playtime','Pets',1,'daily','Supervised out-of-cage time on playstands for socialization & exercise'),
+    c('c31','Bird Toy Rotation','Pets',1,'biweekly','Rotate and clean bird toys / enrichment items'),
+    c('c32','Bird Health / Vet Coordination','Pets',2,'asNeeded','Monitor for health issues; schedule & manage avian vet visits'),
+    c('c33','Tortoise Care (Scout)','Pets',2,'everyOtherDay','Feed, mist/clean enclosure, check UVB lighting & temps'),
+    c('c34','Fish Tank Maintenance','Pets',2,'weekly','Feed betta, check water params, partial water change, tend shrimp/snail'),
+    c('c35',"Sterling's Morning Routine",'Sterling',3,'daily','Wake & dress Sterling, brush teeth, breakfast, pack bag, school drop-off, manage school special/theme days'),
+    c('c36',"Sterling's Night Routine",'Sterling',3,'daily','Dinner cleanup for Sterling, bath/shower, brush teeth, pajamas, books, bedtime routine'),
+    c('c37',"Clarence's Walks / Exercise",'Pets',1,'daily','Daily walk(s) and playtime for Clarence'),
+    c('c38','Clarence Grooming','Pets',2,'weekly','Brush coat, check/trim nails, wipe ears'),
+    c('c39','Clean Bathrooms','Household',3,'weekly','Scrub toilets, sinks, showers/tubs, wipe mirrors'),
+    c('c40','Change & Wash Bedsheets','Household',2,'weekly','Strip and wash bedding, remake beds'),
+    c('c41','Vacuum Upstairs / Carpets','Household',1,'weekly','Vacuum upstairs carpet, rugs, and stairs'),
+    c('c42','Front Yard / Lawn Care','Household',2,'weekly','Mow, edge, and tidy the front yard'),
+    c('c43','Pool Maintenance','Household',2,'weekly','Skim debris, check chemical levels, run pump/heater check'),
+    c('c44','HVAC & Water Filter Changes','Household',1,'monthly','Swap HVAC air filter; check/replace CovePure RO filter'),
+    c('c45','Meal Planning / Menu Decisions','Kitchen & Meals',2,'weekly',"Decide the week's meals before the grocery list gets built"),
+    c('c46','Medical Appointments','Admin',2,'asNeeded','Schedule and attend medical appointments for Sterling and yourselves'),
+    c('c47','School Communication & Forms','Sterling',2,'weekly','Read/respond to school emails, sign forms, track supply & theme-day requests'),
+    c('c48','Birthday, Holiday & Gift Planning','Admin',2,'monthly','Track birthdays/holidays; plan and order gifts and cards'),
+    c('c49','Budget & Subscription Review','Admin',1,'monthly','Review spending, cancel/renew subscriptions, check the budget tracker'),
+    c('c50','Household Paperwork & Records','Admin',1,'monthly','File receipts, warranties, and insurance docs; track service due dates'),
+    c('c51','Car Maintenance Scheduling','Admin',1,'monthly','Track oil changes, registration renewal, and tags'),
+    c('c52','Household Command Center Upkeep','Admin',1,'weekly','Keep the family calendar, pet profiles, and budget tracker current on the hub'),
+    c('c53','Childcare Coverage Planning','Sterling',2,'asNeeded','Line up sitters or backup care and coordinate schedule changes'),
+    c('c54','Dental Appointments','Admin',2,'asNeeded','Schedule and attend dental appointments for Sterling and yourselves'),
+    c('c55','Date Night Planning','Admin',1,'asNeeded','Plan and set up a date night — reservations, sitter coordination, etc.'),
+    c('c56','Family Outing / Weekend Activity Planning','Admin',1,'asNeeded','Plan a weekend outing or activity for the family'),
+  ];
+}
+function defaultState(){
+  return {
+    chores: defaultChores(),
+    pairs: [{id:'p1', a:'c35', b:'c36', switchEnabled:true, switchesPerMonth:2, status:'pending'}],
+    votes: {p1:{Hannah:null,Trent:null}},
+    assignments: {},
+    choreSwitchConfig: {},
+    switchRotation: {},
+    draft: {started:false, firstPlayer:null, turnIndex:0, picks:[]},
+    switches: [],
+    completions: [],
+    offers: [],
+  };
+}
+
+/* Pair every chore that's currently free (unassigned, not already in any pair)
+   into a head-to-head, largest-weight-first, so nothing sits ungrouped. */
+function ensureAllChoresPaired(){
+  const pairedIds = new Set();
+  state.pairs.forEach(p=>{ pairedIds.add(p.a); pairedIds.add(p.b); });
+  const free = state.chores.filter(c => !state.assignments[c.id] && !pairedIds.has(c.id));
+  free.sort((a,b)=> choreTotal(b) - choreTotal(a));
+  for(let i=0; i+1<free.length; i+=2){
+    const id = 'p'+Date.now()+'_'+i;
+    state.pairs.push({id, a:free[i].id, b:free[i+1].id, switchEnabled:false, switchesPerMonth:2, status:'pending'});
+    state.votes[id] = {Hannah:null, Trent:null};
+  }
+}
+
+/* Force two specific chores into a head-to-head together, if possible.
+   Leaves any already-decided vote or assignment alone (never destroys progress) —
+   it only dissolves an UNVOTED pending pair to make room. */
+function forcePair(idA, idB, opts){
+  opts = opts || {};
+  if(!choreById(idA) || !choreById(idB)) return;
+  const already = state.pairs.find(p => (p.a===idA && p.b===idB) || (p.a===idB && p.b===idA));
+  if(already) return;
+  [idA, idB].forEach(id=>{
+    if(state.assignments[id]) return; // already has an owner — leave it be
+    const p = state.pairs.find(pp => (pp.a===id || pp.b===id) && pairStatus(pp)==='pending');
+    if(p){
+      const v = state.votes[p.id];
+      if(!v || (!v.Hannah && !v.Trent)){
+        state.pairs = state.pairs.filter(pp=>pp.id!==p.id);
+        delete state.votes[p.id];
+      }
+    }
+  });
+  if(!state.assignments[idA] && !state.assignments[idB] && !isChoreInPendingPair(idA) && !isChoreInPendingPair(idB)){
+    const id = 'p_'+idA+'_'+idB;
+    state.pairs.push({id, a:idA, b:idB, switchEnabled: !!opts.switchEnabled, switchesPerMonth: opts.switchesPerMonth||2, status:'pending'});
+    state.votes[id] = {Hannah:null, Trent:null};
+  }
+}
+
+/* Give a specific chore a default alternating (Switch) assignment, but only
+   if nobody has touched it yet — never overrides an existing assignment/pair. */
+function forceDefaultSwitch(choreId, startPerson){
+  if(!choreById(choreId)) return;
+  if(state.assignments[choreId]) return;
+  if(isChoreInPendingPair(choreId)) return;
+  state.assignments[choreId] = 'Switch';
+  state.switchRotation[choreId] = {mode:'occurrence', startPerson};
+}
+
+function freeChoreFromPairOrAssignment(choreId){
+  delete state.assignments[choreId];
+  delete state.switchRotation[choreId];
+  delete state.choreSwitchConfig[choreId];
+  const pair = state.pairs.find(p => (p.a===choreId || p.b===choreId) && pairStatus(p)==='pending');
+  if(pair){
+    const partnerId = pair.a===choreId ? pair.b : pair.a;
+    delete state.assignments[partnerId];
+    delete state.switchRotation[partnerId];
+    state.pairs = state.pairs.filter(p=>p.id!==pair.id);
+    delete state.votes[pair.id];
+  }
+}
+
+/* One place for every "bring saved data up to date with the current app version" step.
+   Safe to call on a fresh default state or a previously-saved one. */
+function runMigrations(){
+  const CATEGORY_MERGE = {'Clarence':'Pets','Birds':'Pets','Other Pets':'Pets'};
+  state.chores.forEach(c=>{ if(CATEGORY_MERGE[c.category]) c.category = CATEGORY_MERGE[c.category]; });
+
+  const have = new Set(state.chores.map(c=>c.id));
+  defaultChores().forEach(dc=>{ if(!have.has(dc.id)) state.chores.push(dc); });
+
+  if(!state.switches) state.switches=[];
+  if(!state.completions) state.completions=[];
+  if(!state.draft) state.draft={started:false,firstPlayer:null,turnIndex:0,picks:[]};
+  if(!state.choreSwitchConfig) state.choreSwitchConfig={};
+  if(!state.switchRotation) state.switchRotation={};
+  if(!state.offers) state.offers=[];
+
+  state.pairs.forEach(p=>{
+    if(p.switchEnabled===undefined) p.switchEnabled = !!p.bigChore;
+    if(p.switchesPerMonth===undefined) p.switchesPerMonth = 2;
+    if(pairStatus(p)==='split'){
+      const v = state.votes[p.id];
+      [v.Hannah, v.Trent].forEach(id=>{
+        if(id && !state.choreSwitchConfig[id]){
+          state.choreSwitchConfig[id] = {enabled: !!p.switchEnabled, perMonth: p.switchesPerMonth};
+        }
+      });
+    }
+  });
+
+  // fold "vet" out of the old combined appointment chore now that Medical/Dental are separate
+  const oldMed = state.chores.find(c=>c.id==='c46');
+  if(oldMed && oldMed.name==='Medical, Dental & Vet Appointment Scheduling'){
+    oldMed.name = 'Medical Appointments';
+    oldMed.details = 'Schedule and attend medical appointments for Sterling and yourselves';
+  }
+
+  forcePair('c46','c54', {});   // Medical Appointments vs Dental Appointments
+  forcePair('c47','c53', {});   // School Communication & Forms vs Childcare Coverage Planning
+  forceDefaultSwitch('c55','Hannah'); // Date Night Planning — alternates by turn
+  forceDefaultSwitch('c56','Trent');  // Family Outing / Weekend Activity Planning — alternates by turn
+
+  ensureAllChoresPaired();
+}
+
+/* ============================== STATE / STORAGE ============================== */
+let state = null;
+let currentUser = null; // session only, not persisted
+let activeTab = 'chores';
+let editingChoreId = null; // session only, not persisted
+let editingPairId = null; // session only, not persisted
+function escAttr(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+const STORE_KEY = 'grossman-ledger-state-v1';
+
+let storageHealthy = true;
+async function withRetry(fn, attempts){
+  attempts = attempts || 3;
+  let lastErr;
+  for(let i=0;i<attempts;i++){
+    try{ return await fn(); }
+    catch(e){ lastErr = e; if(i<attempts-1) await new Promise(r=>setTimeout(r, 400*(i+1))); }
+  }
+  throw lastErr;
+}
+async function loadState(){
+  try{
+    const res = await withRetry(()=>window.storage.get(STORE_KEY, true));
+    if(res && res.value){
+      state = JSON.parse(res.value);
+      runMigrations();
+    } else {
+      state = defaultState();
+      runMigrations();
+      await saveState(true);
+    }
+  }catch(e){
+    console.error('load failed after retries, using defaults', e);
+    state = defaultState();
+    runMigrations();
+    storageHealthy = false;
+    try{
+      await withRetry(()=>window.storage.set(STORE_KEY, JSON.stringify(state), true));
+      storageHealthy = true;
+    }catch(e2){
+      console.error('save failed too', e2);
+    }
+  }
+  render();
+  saveState(true);
+}
+async function saveState(silent){
+  try{
+    await withRetry(()=>window.storage.set(STORE_KEY, JSON.stringify(state), true));
+    storageHealthy = true;
+    if(!silent) toast('Saved');
+  }catch(e){
+    console.error('save error after retries', e);
+    storageHealthy = false;
+    toast('Not saving right now — see banner up top');
+    render();
+  }
+}
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(window.__toastT);
+  window.__toastT = setTimeout(()=>t.classList.remove('show'), 1600);
+}
+async function mutate(fn){
+  fn();
+  render();
+  await saveState(true);
+}
+
+/* ============================== HELPERS ============================== */
+function choreById(id){ return state.chores.find(c=>c.id===id); }
+function choreTotal(c){ return c.annoyance * CADENCE[c.cadence].weight; }
+function otherPerson(p){ return p==='Hannah' ? 'Trent' : 'Hannah'; }
+function todayISO(){ return new Date().toISOString().slice(0,10); }
+function daysBetween(a,b){ return Math.floor((new Date(b) - new Date(a)) / 86400000); }
+function fmtDate(iso){ return new Date(iso+'T00:00:00').toLocaleDateString(undefined,{month:'short',day:'numeric'}); }
+function monthKey(iso){ return iso.slice(0,7); }
+function fmtPts(n){ return Number.isInteger(n) ? String(n) : n.toFixed(1); }
+
+function currentSwitchHolder(choreId){
+  const cfg = state.switchRotation[choreId];
+  if(!cfg) return null;
+  if(cfg.mode === 'occurrence'){
+    const count = state.completions.filter(e=>e.choreId===choreId).length;
+    return count % 2 === 0 ? cfg.startPerson : otherPerson(cfg.startPerson);
+  }
+  const elapsed = Math.max(0, daysBetween(cfg.anchorDate, todayISO()));
+  const periods = Math.floor(elapsed / cfg.periodDays);
+  return periods % 2 === 0 ? cfg.startPerson : otherPerson(cfg.startPerson);
+}
+
+function personTotal(person){
+  return state.chores.reduce((sum,c)=>{
+    const owner = state.assignments[c.id];
+    if(owner === person) return sum + choreTotal(c);
+    if(owner === 'Both' || owner === 'Switch') return sum + choreTotal(c)/2;
+    return sum;
+  },0);
+}
+function pairStatus(pair){
+  const v = state.votes[pair.id] || {Hannah:null,Trent:null};
+  if(v.Hannah && v.Trent){
+    return v.Hannah === v.Trent ? 'tied' : 'split';
+  }
+  return 'pending';
+}
+function isChoreInPendingPair(choreId){
+  return state.pairs.some(p => (p.a===choreId || p.b===choreId) && pairStatus(p)==='pending');
+}
+function draftPool(){
+  return state.chores.filter(c => !state.assignments[c.id] && !isChoreInPendingPair(c.id));
+}
+function ensurePairResolved(pair){
+  const status = pairStatus(pair);
+  if(status==='split'){
+    const v = state.votes[pair.id];
+    state.assignments[v.Hannah] = 'Hannah';
+    state.assignments[v.Trent] = 'Trent';
+    [v.Hannah, v.Trent].forEach(id=>{
+      state.choreSwitchConfig[id] = {enabled: !!pair.switchEnabled, perMonth: pair.switchesPerMonth || 2};
+    });
+  }
+  // tied -> leave both unassigned, they fall into draftPool() automatically since pair no longer pending
+}
+function currentDraftPlayer(){
+  if(!state.draft.started) return null;
+  return state.draft.turnIndex % 2 === 0 ? state.draft.firstPlayer : otherPerson(state.draft.firstPlayer);
+}
+function switchesThisMonth(person){
+  const mk = monthKey(todayISO());
+  return state.switches.filter(s=> s.requestedBy===person && monthKey(s.date)===mk).length;
+}
+function lastCompletion(choreId){
+  const entries = state.completions.filter(e=>e.choreId===choreId).sort((a,b)=>b.date.localeCompare(a.date));
+  return entries[0] || null;
+}
+function completedToday(choreId){
+  return state.completions.some(e=>e.choreId===choreId && e.date===todayISO());
+}
+function dueStatus(chore){
+  const days = CADENCE_DUE_DAYS[chore.cadence];
+  if(days===null) return {label:'As needed', cls:'neutral'};
+  const last = lastCompletion(chore.id);
+  if(!last) return {label:'Due', cls:'due'};
+  const gap = daysBetween(last.date, todayISO());
+  if(gap < days) return {label:'On track', cls:'ok'};
+  return {label:'Due', cls:'due'};
+}
+function todaysSwitchFor(choreId){
+  return state.switches.find(s=>s.choreId===choreId && s.date===todayISO());
+}
+
+/* ============================== RENDER: SHELL ============================== */
+function render(){
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    ${storageHealthy ? '' : `<div class="storage-banner">
+      <span>⚠️ Changes aren't saving right now (storage error). Keep going if you want, but reload once this clears so nothing gets lost — and don't count on the other person seeing your picks yet.</span>
+      <button onclick="retryStorage()">Try saving again</button>
+    </div>`}
+    ${renderHeader()}
+    <div class="tabs">
+      ${tabBtn('chores','Chores', state.chores.length)}
+      ${tabBtn('pairs','Pairs & Voting', state.pairs.filter(p=>pairStatus(p)==='pending').length, true)}
+      ${tabBtn('draft','Draft', draftPool().length, true)}
+      ${tabBtn('tracker','Tracker')}
+    </div>
+    <div id="tab-content">${renderTab()}</div>
+    <div class="footer-note muted small">The Grossman Ledger &middot; weight = annoyance &times; frequency &middot; everything below is yours to edit</div>
+  `;
+}
+function tabBtn(id,label,badge,onlyIfPositive){
+  const show = badge!==undefined && (!onlyIfPositive || badge>0);
+  return `<button class="tab-btn ${activeTab===id?'active':''}" onclick="setTab('${id}')">${label}${show?`<span class="badge">${badge}</span>`:''}</button>`;
+}
+function setTab(id){ activeTab=id; render(); }
+function setUser(p){ currentUser = currentUser===p ? null : p; render(); }
+
+function renderHeader(){
+  const hTotal = personTotal('Hannah');
+  const tTotal = personTotal('Trent');
+  const maxTotal = Math.max(hTotal+tTotal, 1);
+  const angle = Math.max(-11, Math.min(11, ((tTotal - hTotal) / maxTotal) * 26));
+  const beamLen = 210, cx=210, cy=46;
+  const rad = angle * Math.PI/180;
+  const dx = Math.cos(rad)*beamLen/2, dy = Math.sin(rad)*beamLen/2;
+  const lx = cx-dx, ly = cy-dy, rx = cx+dx, ry = cy+dy;
+  return `
+  <div class="ledger-band">
+    <div class="ledger-top">
+      <div>
+        <div class="ledger-title">The <span class="accent">Grossman</span> Ledger</div>
+        <div class="ledger-sub">Fair-split chores for a very full house</div>
+      </div>
+      <div class="who-switch">
+        <span>Viewing as</span>
+        <button class="who-btn hannah ${currentUser==='Hannah'?'active':''}" onclick="setUser('Hannah')">Hannah</button>
+        <button class="who-btn trent ${currentUser==='Trent'?'active':''}" onclick="setUser('Trent')">Trent</button>
+      </div>
+    </div>
+    <div class="beam-wrap">
+      <svg class="beam-svg" width="420" height="120" viewBox="0 0 420 120">
+        <polygon points="200,90 220,90 210,66" fill="#3C524B"/>
+        <line x1="210" y1="66" x2="210" y2="86" stroke="#3C524B" stroke-width="4"/>
+        <line x1="${lx}" y1="${ly}" x2="${rx}" y2="${ry}" stroke="#D9C98A" stroke-width="3.5" stroke-linecap="round"/>
+        <line x1="${lx}" y1="${ly}" x2="${lx}" y2="${ly+16}" stroke="#8C9A94" stroke-width="1.5"/>
+        <line x1="${rx}" y1="${ry}" x2="${rx}" y2="${ry+16}" stroke="#8C9A94" stroke-width="1.5"/>
+        <circle cx="${lx}" cy="${ly+26}" r="15" fill="#C1552C"/>
+        <circle cx="${rx}" cy="${ry+26}" r="15" fill="#2E6E62"/>
+      </svg>
+      <div class="beam-readout">
+        <div class="beam-stat hannah"><div class="name">Hannah</div><div class="pts mono">${fmtPts(hTotal)} pts</div></div>
+        <div class="beam-stat trent"><div class="name">Trent</div><div class="pts mono">${fmtPts(tTotal)} pts</div></div>
+        <div class="beam-note">${beamNote(hTotal,tTotal)}</div>
+      </div>
+    </div>
+  </div>`;
+}
+function beamNote(h,t){
+  if(h===0 && t===0) return 'No chores assigned yet — vote on the big ones, then draft the rest.';
+  const diff = Math.abs(h-t);
+  if(diff<=3) return 'Nicely balanced.';
+  const heavier = h>t?'Hannah':'Trent';
+  return `${heavier} is carrying ${diff} more points right now.`;
+}
+
+/* ============================== RENDER: TAB DISPATCH ============================== */
+function renderTab(){
+  if(activeTab==='chores') return renderChoresTab();
+  if(activeTab==='pairs') return renderPairsTab();
+  if(activeTab==='draft') return renderDraftTab();
+  if(activeTab==='tracker') return renderTrackerTab();
+  return '';
+}
+
+/* ============================== CHORES TAB ============================== */
+function ownerPill(choreId){
+  const owner = state.assignments[choreId];
+  if(owner==='Both') return `<span class="pill owner-both">Both</span>`;
+  if(owner==='Switch') return `<span class="pill owner-switch">Alternating — ${currentSwitchHolder(choreId)} now</span>`;
+  if(owner) return `<span class="pill owner-${owner.toLowerCase()}">${owner}</span>`;
+  if(isChoreInPendingPair(choreId)) return `<span class="pill owner-none">In a vote</span>`;
+  return `<span class="pill owner-none">Draft pool</span>`;
+}
+function renderChoresTab(){
+  const byCat = {};
+  CATEGORIES.forEach(cat=>byCat[cat]=[]);
+  state.chores.forEach(c=>{ (byCat[c.category]=byCat[c.category]||[]).push(c); });
+
+  let html = `<div class="card">
+    <h3>Add a chore</h3>
+    <p class="muted small">New chores start in the draft pool. Pair it up in the Voting tab if it belongs alongside another as an either/or.</p>
+    <div class="add-form">
+      <div class="full"><label>Name</label><input type="text" id="nf-name" placeholder="e.g. Water the succulents"/></div>
+      <div><label>Category</label><select id="nf-cat">${CATEGORIES.map(c=>`<option>${c}</option>`).join('')}</select></div>
+      <div><label>Annoyance</label><select id="nf-ann">${[1,2,3,4].map(n=>`<option value="${n}">${n} — ${ANNOYANCE_LABELS[n]}</option>`).join('')}</select></div>
+      <div><label>Cadence</label><select id="nf-cad">${Object.keys(CADENCE).map(k=>`<option value="${k}">${CADENCE[k].label}</option>`).join('')}</select></div>
+      <div class="full"><label>Details</label><input type="text" id="nf-details" placeholder="What does this actually involve?"/></div>
+      <div class="full"><label>Notes / schedule</label><input type="text" id="nf-notes" placeholder="e.g. Every Sunday"/></div>
+    </div>
+    <div style="margin-top:10px;"><button class="btn" onclick="addChore()">Add chore</button></div>
+  </div>`;
+
+  CATEGORIES.forEach(cat=>{
+    const list = byCat[cat];
+    if(!list.length) return;
+    html += `<div class="section-title"><h2>${cat}</h2><div class="tally"></div><div class="count mono">${list.length}</div></div>`;
+    html += `<div class="card">`;
+    html += `<div class="chore-row head"><div>Chore</div><div>Annoyance</div><div>Cadence</div><div>Weight</div><div>Owner</div><div></div></div>`;
+    list.forEach(c=>{
+      if(editingChoreId === c.id){
+        html += `<div class="chore-row edit-row">
+          <div class="full">
+            <label>Name</label><input type="text" id="ef-name" value="${escAttr(c.name)}"/>
+          </div>
+          <div class="edit-grid">
+            <div><label>Category</label><select id="ef-cat">${CATEGORIES.map(cat=>`<option ${cat===c.category?'selected':''}>${cat}</option>`).join('')}</select></div>
+            <div><label>Details</label><input type="text" id="ef-details" value="${escAttr(c.details||'')}" placeholder="What does this actually involve?"/></div>
+            <div><label>Notes / schedule</label><input type="text" id="ef-notes" value="${escAttr(c.notes||'')}" placeholder="e.g. Every Sunday"/></div>
+          </div>
+          <div style="grid-column:1/-1;display:flex;gap:8px;margin-top:4px;">
+            <button class="btn small" onclick="saveEditChore('${c.id}')">Save</button>
+            <button class="btn ghost small" onclick="cancelEditChore()">Cancel</button>
+          </div>
+        </div>`;
+        return;
+      }
+      html += `<div class="chore-row">
+        <div>
+          <div class="chore-name">${c.name}</div>
+          <div class="chore-details">${c.details||''}${c.notes?` &middot; ${c.notes}`:''}</div>
+        </div>
+        <div><select onchange="editChore('${c.id}','annoyance',this.value)">${[1,2,3,4].map(n=>`<option value="${n}" ${c.annoyance==n?'selected':''}>${n} — ${ANNOYANCE_LABELS[n]}</option>`).join('')}</select></div>
+        <div><select onchange="editChore('${c.id}','cadence',this.value)">${Object.keys(CADENCE).map(k=>`<option value="${k}" ${c.cadence===k?'selected':''}>${CADENCE[k].label}</option>`).join('')}</select></div>
+        <div class="total-chip">${choreTotal(c)} pts</div>
+        <div>${ownerPill(c.id)}</div>
+        <div style="text-align:right;">
+          <button class="icon-btn" title="Edit name & details" onclick="startEditChore('${c.id}')">✎</button>
+          <button class="icon-btn" title="Send straight to the draft pool" onclick="sendToDraft('${c.id}')">⇥</button>
+          <button class="icon-btn" title="Mark as shared — both of you do it" onclick="assignBoth('${c.id}')">🤝</button>
+          <button class="icon-btn" title="Alternate between you two" onclick="assignSwitchOff('${c.id}')">🔁</button>
+          <button class="icon-btn" title="Delete chore" onclick="deleteChore('${c.id}')">✕</button>
+        </div>
+      </div>`;
+    });
+    html += `</div>`;
+  });
+
+  html += `<div class="footer-note"><button class="btn ghost small" onclick="resetAll()">Reset all ledger data</button></div>`;
+  return html;
+}
+function addChore(){
+  const name = document.getElementById('nf-name').value.trim();
+  if(!name){ toast('Give the chore a name first'); return; }
+  const id = 'c'+Date.now();
+  const chore = {
+    id, name,
+    category: document.getElementById('nf-cat').value,
+    annoyance: Number(document.getElementById('nf-ann').value),
+    cadence: document.getElementById('nf-cad').value,
+    details: document.getElementById('nf-details').value.trim(),
+    notes: document.getElementById('nf-notes').value.trim(),
+  };
+  mutate(()=>{ state.chores.push(chore); });
+  toast('Chore added to the draft pool');
+}
+function editChore(id, field, value){
+  mutate(()=>{
+    const c = choreById(id);
+    if(!c) return;
+    c[field] = field==='annoyance' ? Number(value) : value;
+  });
+}
+function startEditChore(id){ editingChoreId = id; render(); }
+function cancelEditChore(){ editingChoreId = null; render(); }
+function saveEditChore(id){
+  const name = document.getElementById('ef-name').value.trim();
+  if(!name){ toast('Give the chore a name'); return; }
+  const category = document.getElementById('ef-cat').value;
+  const details = document.getElementById('ef-details').value.trim();
+  const notes = document.getElementById('ef-notes').value.trim();
+  mutate(()=>{
+    const c = choreById(id);
+    if(!c) return;
+    c.name = name; c.category = category; c.details = details; c.notes = notes;
+  });
+  editingChoreId = null;
+  render();
+}
+function sendToDraft(choreId){
+  mutate(()=>{ freeChoreFromPairOrAssignment(choreId); });
+  toast('Sent straight to the draft pool');
+}
+function deleteChore(id){
+  if(!confirm('Delete this chore for good?')) return;
+  mutate(()=>{
+    state.chores = state.chores.filter(c=>c.id!==id);
+    delete state.assignments[id];
+    delete state.switchRotation[id];
+    delete state.choreSwitchConfig[id];
+    state.pairs = state.pairs.filter(p=>p.a!==id && p.b!==id);
+    state.completions = state.completions.filter(e=>e.choreId!==id);
+    state.switches = state.switches.filter(s=>s.choreId!==id);
+  });
+}
+async function resetAll(){
+  if(!confirm('This wipes every chore, vote, draft pick, and tracker entry back to the starting ledger. Continue?')) return;
+  state = defaultState();
+  render();
+  await saveState();
+}
+
+/* ============================== PAIRS / VOTING TAB ============================== */
+function renderPairsTab(){
+  const unpairedChoices = state.chores.filter(c => !state.assignments[c.id] && !isChoreInPendingPair(c.id));
+  let html = `<div class="card">
+    <h3>Set up a head-to-head</h3>
+    <p class="muted small">Every chore lives in some head-to-head so far — new chores you add will show up here to pair off, or you can leave them for the draft.</p>
+    <div class="add-form" style="grid-template-columns:1.3fr 1.3fr 1fr 0.8fr auto;">
+      <div><label>Option A</label><select id="pf-a">${unpairedChoices.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')}</select></div>
+      <div><label>Option B</label><select id="pf-b">${unpairedChoices.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')}</select></div>
+      <div><label>Allow switch days?</label><select id="pf-switch"><option value="0">No</option><option value="1">Yes</option></select></div>
+      <div><label>Switches / month</label><input type="text" id="pf-switch-n" value="2"/></div>
+      <div style="align-self:end;"><button class="btn" onclick="createPair()">Create pair</button></div>
+    </div>
+    ${unpairedChoices.length>1 ? `<div style="margin-top:12px;"><button class="btn ghost small" onclick="pairUpRemaining()">Auto-pair the ${unpairedChoices.length} loose chores by weight</button></div>` : ''}
+  </div>`;
+
+  if(!currentUser){
+    html += `<div class="card"><p class="select-first">Pick "Hannah" or "Trent" up top before voting — your vote stays hidden from the other person until you've both answered.</p></div>`;
+  }
+
+  const pending = state.pairs.filter(p=>pairStatus(p)==='pending');
+  const resolved = state.pairs.filter(p=>pairStatus(p)!=='pending');
+
+  html += `<div class="section-title"><h2>Awaiting votes</h2><div class="tally"></div><div class="count mono">${pending.length}</div></div>`;
+  if(!pending.length){
+    html += `<div class="card empty"><h3>Nothing left to vote on</h3><p class="small">Head to the Draft tab to split up what's left.</p></div>`;
+  }
+  pending.forEach(p=>{ html += renderPairCard(p); });
+
+  if(resolved.length){
+    html += `<div class="section-title"><h2>Decided</h2><div class="tally"></div><div class="count mono">${resolved.length}</div></div>`;
+    resolved.forEach(p=>{ html += renderPairCard(p); });
+  }
+  return html;
+}
+function renderPairCard(pair){
+  const a = choreById(pair.a), b = choreById(pair.b);
+  if(!a || !b) return '';
+  const v = state.votes[pair.id] || {Hannah:null,Trent:null};
+  const status = pairStatus(pair);
+  let body = '';
+
+  const optCard = (chore, side) => {
+    const myPick = currentUser && v[currentUser] === chore.id;
+    return `<div class="vote-opt ${myPick?'picked':''}">
+      <div class="vname">${chore.name}</div>
+      <div class="vdet">${chore.details||''}${chore.notes?` &middot; ${chore.notes}`:''}</div>
+      <div class="mono small" style="margin-top:6px;">${choreTotal(chore)} pts &middot; ${CADENCE[chore.cadence].label}</div>
+      ${status==='pending' ? `<div style="margin-top:8px;"><button class="btn small ${currentUser==='Hannah'?'hannah':currentUser==='Trent'?'trent':''}" ${!currentUser?'disabled':''} onclick="castVote('${pair.id}','${chore.id}')">${myPick?'Picked ✓':'Choose this'}</button></div>` : ''}
+    </div>`;
+  };
+
+  body += `<div class="vote-options">${optCard(a,'a')}${optCard(b,'b')}</div>`;
+  body += `<div class="vote-status-row">
+    <div class="vote-marker ${v.Hannah?'done':''}">Hannah ${v.Hannah? '— voted':'— waiting'}</div>
+    <div class="vote-marker ${v.Trent?'done':''}">Trent ${v.Trent? '— voted':'— waiting'}</div>
+  </div>`;
+
+  if(status==='split'){
+    body += `<div class="result-banner split">Split decision — ${v.Hannah==pair.a?'Hannah':'Trent'} takes "${a.name}," ${v.Hannah==pair.a?'Trent':'Hannah'} takes "${b.name}."</div>`;
+  } else if(status==='tied'){
+    body += `<div class="result-banner tie">Both picked the same one — both chores move into the draft pool instead.</div>`;
+  }
+
+  body += `<div class="switch-config">
+    <label><input type="checkbox" ${pair.switchEnabled?'checked':''} onchange="setPairSwitch('${pair.id}','switchEnabled',this.checked)"/> Allow switch days for whoever's assigned</label>
+    ${pair.switchEnabled ? `<span>&middot; <input type="text" value="${pair.switchesPerMonth||2}" onchange="setPairSwitch('${pair.id}','switchesPerMonth',this.value)"/> per month</span>` : ''}
+  </div>`;
+
+  if(editingPairId === pair.id){
+    body += renderPairEditForm(pair);
+  } else {
+    body += `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn ghost small" onclick="startEditPair('${pair.id}')">Change matchup</button>
+      ${status!=='pending' ? `<button class="btn ghost small" onclick="reopenPair('${pair.id}')">Reopen for voting</button>` : ''}
+      <button class="btn ghost small" onclick="sendToDraft('${a.id}')">Send "${a.name}" to draft instead</button>
+      <button class="btn ghost small" onclick="sendToDraft('${b.id}')">Send "${b.name}" to draft instead</button>
+    </div>`;
+  }
+
+  return `<div class="card pair-card">
+    <h3>${a.name} <span class="muted small">vs.</span> ${b.name}</h3>
+    ${body}
+  </div>`;
+}
+function pairUpRemaining(){
+  const before = state.pairs.length;
+  mutate(()=>{ ensureAllChoresPaired(); });
+  const added = state.pairs.length - before;
+  toast(added>0 ? `${added} new matchup${added>1?'s':''} sent to Voting` : 'Nothing left that pairs up evenly right now');
+}
+function pairCandidateChores(pair){
+  return state.chores.filter(c=>{
+    if(c.id===pair.a || c.id===pair.b) return true; // always allow keeping the current picks
+    if(state.assignments[c.id]) return false;
+    if(isChoreInPendingPair(c.id)) return false;
+    return true;
+  });
+}
+function renderPairEditForm(pair){
+  const candidates = pairCandidateChores(pair);
+  const opts = current => candidates.map(ch=>`<option value="${ch.id}" ${ch.id===current?'selected':''}>${ch.name}</option>`).join('');
+  return `<div class="add-form" style="grid-template-columns:1fr 1fr auto auto;margin-top:10px;">
+    <div><label>Option A</label><select id="pe-a">${opts(pair.a)}</select></div>
+    <div><label>Option B</label><select id="pe-b">${opts(pair.b)}</select></div>
+    <div style="align-self:end;"><button class="btn small" onclick="savePairMatchup('${pair.id}')">Save matchup</button></div>
+    <div style="align-self:end;"><button class="btn ghost small" onclick="cancelEditPair()">Cancel</button></div>
+  </div>`;
+}
+function startEditPair(id){ editingPairId = id; render(); }
+function cancelEditPair(){ editingPairId = null; render(); }
+function savePairMatchup(pairId){
+  const newA = document.getElementById('pe-a').value;
+  const newB = document.getElementById('pe-b').value;
+  if(!newA || !newB || newA===newB){ toast('Choose two different chores'); return; }
+  mutate(()=>{
+    const pair = state.pairs.find(p=>p.id===pairId);
+    if(!pair) return;
+    // clear out any assignment/switch state tied to the old matchup
+    [pair.a, pair.b].forEach(id=>{
+      if(id!==newA && id!==newB){
+        delete state.assignments[id];
+        delete state.choreSwitchConfig[id];
+        delete state.switchRotation[id];
+      }
+    });
+    pair.a = newA; pair.b = newB; pair.status = 'pending';
+    state.votes[pairId] = {Hannah:null, Trent:null};
+  });
+  editingPairId = null;
+  render();
+  toast('Matchup updated — votes reset for this pair');
+}
+function reopenPair(pairId){
+  mutate(()=>{
+    const pair = state.pairs.find(p=>p.id===pairId);
+    if(!pair) return;
+    [pair.a, pair.b].forEach(id=>{
+      delete state.assignments[id];
+      delete state.choreSwitchConfig[id];
+    });
+    pair.status = 'pending';
+    state.votes[pairId] = {Hannah:null, Trent:null};
+  });
+  toast('Reopened — cast new votes when ready');
+}
+function createPair(){
+  const a = document.getElementById('pf-a').value;
+  const b = document.getElementById('pf-b').value;
+  if(!a || !b || a===b){ toast('Choose two different chores'); return; }
+  const switchEnabled = document.getElementById('pf-switch').value==='1';
+  const switchesPerMonth = Math.max(1, Number(document.getElementById('pf-switch-n').value)||2);
+  const id = 'p'+Date.now();
+  mutate(()=>{
+    state.pairs.push({id, a, b, switchEnabled, switchesPerMonth, status:'pending'});
+    state.votes[id] = {Hannah:null, Trent:null};
+  });
+}
+function setPairSwitch(pairId, field, value){
+  mutate(()=>{
+    const pair = state.pairs.find(p=>p.id===pairId);
+    if(!pair) return;
+    pair[field] = field==='switchesPerMonth' ? Math.max(1, Number(value)||2) : value;
+    if(pairStatus(pair)==='split'){
+      const v = state.votes[pair.id];
+      [v.Hannah, v.Trent].forEach(id=>{
+        state.choreSwitchConfig[id] = {enabled: !!pair.switchEnabled, perMonth: pair.switchesPerMonth || 2};
+      });
+    }
+  });
+}
+function castVote(pairId, choreId){
+  if(!currentUser){ toast('Pick who you are first'); return; }
+  mutate(()=>{
+    state.votes[pairId][currentUser] = choreId;
+    const pair = state.pairs.find(p=>p.id===pairId);
+    if(pair && pairStatus(pair)!=='pending'){
+      pair.status = pairStatus(pair);
+      ensurePairResolved(pair);
+    }
+  });
+}
+
+/* ============================== DRAFT TAB ============================== */
+function renderDraftTab(){
+  const pool = draftPool();
+  const pendingVotes = state.pairs.filter(p=>pairStatus(p)==='pending').length;
+  let html = '';
+
+  if(pendingVotes>0){
+    html += `<div class="card"><p class="muted small">${pendingVotes} head-to-head vote${pendingVotes>1?'s':''} still open — chores tied up in a vote will join the pool once that's settled.</p></div>`;
+  }
+
+  if(!pool.length && !state.draft.started){
+    html += `<div class="card empty"><h3>Nothing to draft yet</h3><p class="small">Add chores or resolve a vote first.</p></div>`;
+    return html;
+  }
+
+  if(!state.draft.started){
+    html += `<div class="card">
+      <h3>Ready to draft ${pool.length} chore${pool.length===1?'':'s'}</h3>
+      <p class="muted small">Whoever has fewer points right now picks first, then you'll go back and forth until the pool is empty.</p>
+      <div style="margin-top:10px;"><button class="btn" onclick="startDraft()">Start the draft</button></div>
+    </div>`;
+    return html;
+  }
+
+  if(!pool.length){
+    html += `<div class="card empty"><h3>Draft complete 🎉</h3><p class="small">Every chore has a home. Head to the Tracker to start checking things off.</p></div>`;
+  } else {
+    const turn = currentDraftPlayer();
+    const canPick = currentUser === turn;
+    html += `<div class="turn-banner" style="background:${turn==='Hannah'?'var(--hannah-soft)':'var(--trent-soft)'};color:${turn==='Hannah'?'var(--hannah)':'var(--trent)'};">
+      <span>It's ${turn}'s pick (pick #${state.draft.picks.length+1})</span>
+      ${!canPick ? `<span class="small" style="font-weight:500;">${currentUser?`Waiting on ${turn}…`:'Select who you are up top to pick'}</span>` : ''}
+    </div>`;
+    html += `<div class="pool-grid">`;
+    pool.forEach(c=>{
+      html += `<div class="pool-card">
+        <div class="pname">${c.name}</div>
+        <div class="pmeta">${c.category} &middot; ${CADENCE[c.cadence].label} &middot; ${choreTotal(c)} pts</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="btn small ${turn==='Hannah'?'hannah':'trent'}" ${canPick?'':'disabled'} onclick="draftPick('${c.id}')">Take it</button>
+          <button class="btn ghost small" onclick="assignBoth('${c.id}')">Both do it</button>
+          <button class="btn ghost small" onclick="assignSwitchOff('${c.id}')">Alternate it</button>
+        </div>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  html += renderOffers(pool);
+
+  if(state.draft.picks.length){
+    html += `<div class="pick-log card">
+      <h3>Pick log</h3>
+      ${state.draft.picks.slice().reverse().map((p,i)=>{
+        const c = choreById(p.choreId);
+        return `<div class="pick-log-row"><span>#${state.draft.picks.length-i} — ${c?c.name:'(removed chore)'}</span><span class="mono">${p.by}</span></div>`;
+      }).join('')}
+    </div>`;
+  }
+  return html;
+}
+function startDraft(){
+  const h = personTotal('Hannah'), t = personTotal('Trent');
+  const first = h<=t ? 'Hannah' : 'Trent';
+  mutate(()=>{ state.draft = {started:true, firstPlayer:first, turnIndex:0, picks:[]}; });
+}
+function draftPick(choreId){
+  const turn = currentDraftPlayer();
+  if(currentUser !== turn){ toast(`It's ${turn}'s turn`); return; }
+  mutate(()=>{
+    state.assignments[choreId] = turn;
+    state.draft.picks.push({choreId, by:turn, at:new Date().toISOString()});
+    state.draft.turnIndex += 1;
+  });
+}
+
+/* ============================== TRADE OFFERS ============================== */
+let showOfferForm = false; // session only, not persisted
+function choreNameList(ids){
+  if(!ids || !ids.length) return 'nothing';
+  return ids.map(id=>{ const c=choreById(id); return c?c.name:'(removed chore)'; }).join(', ');
+}
+function renderOffers(pool){
+  let html = '';
+  const incoming = state.offers.filter(o=>o.status==='pending' && o.to===currentUser);
+  const outgoing = state.offers.filter(o=>o.status==='pending' && o.from===currentUser);
+  const recent = state.offers.filter(o=>o.status!=='pending').slice(-4).reverse();
+
+  incoming.forEach(o=>{
+    html += `<div class="card offer-card incoming">
+      <h3>Trade offer from ${o.from}</h3>
+      <p class="small">${o.from} takes <strong>${choreNameList(o.takeMe)}</strong> — if you take <strong>${choreNameList(o.takeThem)}</strong></p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn small ${currentUser==='Hannah'?'hannah':'trent'}" onclick="acceptOffer('${o.id}')">Accept trade</button>
+        <button class="btn ghost small" onclick="declineOffer('${o.id}')">Decline</button>
+      </div>
+    </div>`;
+  });
+  outgoing.forEach(o=>{
+    html += `<div class="card offer-card outgoing">
+      <h3>Your offer to ${o.to}</h3>
+      <p class="small">You take <strong>${choreNameList(o.takeMe)}</strong> — ${o.to} takes <strong>${choreNameList(o.takeThem)}</strong></p>
+      <div class="muted small" style="margin-bottom:6px;">Waiting on ${o.to}…</div>
+      <button class="btn ghost small" onclick="cancelOffer('${o.id}')">Cancel offer</button>
+    </div>`;
+  });
+
+  if(currentUser && pool.length){
+    html += showOfferForm ? renderOfferForm(pool) : `<div style="margin:4px 0 14px;"><button class="btn ghost small" onclick="toggleOfferForm()">Propose a trade</button></div>`;
+  }
+
+  if(recent.length){
+    html += `<div class="card"><h3>Recent trade history</h3>` + recent.map(o=>
+      `<div class="pick-log-row"><span>${o.from} takes ${choreNameList(o.takeMe)} &middot; ${o.to} takes ${choreNameList(o.takeThem)}</span><span class="mono">${o.status}</span></div>`
+    ).join('') + `</div>`;
+  }
+  return html;
+}
+function renderOfferForm(pool){
+  const partner = otherPerson(currentUser);
+  const checkbox = (prefix, c) => `<label class="offer-check"><input type="checkbox" id="${prefix}-${c.id}"/> ${c.name} <span class="mono muted">${choreTotal(c)}pt</span></label>`;
+  return `<div class="card offer-card form">
+    <h3>Propose a trade</h3>
+    <p class="muted small">Check what you'll take and what you want ${partner} to take in return — one side can be empty if it's just a gift.</p>
+    <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:8px;">
+      <div style="flex:1;min-width:200px;">
+        <div class="offer-col-label">I'll take (${currentUser})</div>
+        ${pool.map(c=>checkbox('offer-mine', c)).join('')}
+      </div>
+      <div style="flex:1;min-width:200px;">
+        <div class="offer-col-label">${partner} takes</div>
+        ${pool.map(c=>checkbox('offer-theirs', c)).join('')}
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <button class="btn small" onclick="submitOffer()">Send offer</button>
+      <button class="btn ghost small" onclick="toggleOfferForm()">Cancel</button>
+    </div>
+  </div>`;
+}
+function toggleOfferForm(){ showOfferForm = !showOfferForm; render(); }
+function submitOffer(){
+  if(!currentUser){ toast('Pick who you are first'); return; }
+  const pool = draftPool();
+  const mine = pool.filter(c=>document.getElementById('offer-mine-'+c.id) && document.getElementById('offer-mine-'+c.id).checked).map(c=>c.id);
+  const theirs = pool.filter(c=>document.getElementById('offer-theirs-'+c.id) && document.getElementById('offer-theirs-'+c.id).checked).map(c=>c.id);
+  if(mine.some(id=>theirs.includes(id))){ toast("A chore can't be on both sides of the trade"); return; }
+  if(!mine.length && !theirs.length){ toast('Select at least one chore for the trade'); return; }
+  mutate(()=>{
+    state.offers.push({id:'off_'+Date.now(), from:currentUser, to:otherPerson(currentUser), takeMe:mine, takeThem:theirs, status:'pending', createdAt:new Date().toISOString()});
+  });
+  showOfferForm = false;
+  render();
+  toast('Offer sent');
+}
+function acceptOffer(offerId){
+  let skipped = 0;
+  mutate(()=>{
+    const offer = state.offers.find(o=>o.id===offerId);
+    if(!offer || offer.status!=='pending') return;
+    const assign = (choreId, person) => {
+      if(state.assignments[choreId]){ skipped++; return; }
+      freeChoreFromPairOrAssignment(choreId);
+      state.assignments[choreId] = person;
+      state.draft.picks.push({choreId, by:person, at:new Date().toISOString()});
+    };
+    offer.takeMe.forEach(id=>assign(id, offer.from));
+    offer.takeThem.forEach(id=>assign(id, offer.to));
+    offer.status = 'accepted';
+    offer.resolvedAt = new Date().toISOString();
+  });
+  toast(skipped ? 'Trade accepted — some chores were already taken and got skipped' : 'Trade accepted');
+}
+function declineOffer(offerId){
+  mutate(()=>{
+    const offer = state.offers.find(o=>o.id===offerId);
+    if(offer){ offer.status='declined'; offer.resolvedAt=new Date().toISOString(); }
+  });
+  toast('Trade declined');
+}
+function cancelOffer(offerId){
+  mutate(()=>{ state.offers = state.offers.filter(o=>o.id!==offerId || o.status!=='pending'); });
+  toast('Offer withdrawn');
+}
+function assignBoth(choreId){
+  const c = choreById(choreId);
+  if(!c) return;
+  if(!confirm(`Mark "${c.name}" as a shared chore that you both do — instead of picking a single owner?`)) return;
+  mutate(()=>{
+    freeChoreFromPairOrAssignment(choreId);
+    state.assignments[choreId] = 'Both';
+    state.draft.picks.push({choreId, by:'Both', at:new Date().toISOString()});
+  });
+  toast('Marked as shared — it will show up for both of you');
+}
+function assignSwitchOff(choreId){
+  const c = choreById(choreId);
+  if(!c) return;
+  const start = confirm(`Alternate "${c.name}" between you two. OK = start with Hannah, Cancel = start with Trent.`) ? 'Hannah' : 'Trent';
+  const byTurn = confirm('OK = alternate by turn — flips to the other person each time either of you marks it done (good for things without a fixed schedule, like date night). Cancel = alternate on a fixed weekly/monthly schedule instead.');
+  mutate(()=>{
+    freeChoreFromPairOrAssignment(choreId);
+    state.assignments[choreId] = 'Switch';
+    if(byTurn){
+      state.switchRotation[choreId] = {mode:'occurrence', startPerson:start};
+    } else {
+      const period = confirm('OK = swap every week. Cancel = swap every month.') ? 7 : 30;
+      state.switchRotation[choreId] = {mode:'calendar', startPerson:start, periodDays:period, anchorDate: todayISO()};
+    }
+    state.draft.picks.push({choreId, by:`Alternating (starts ${start})`, at:new Date().toISOString()});
+  });
+  toast('Set to alternate — the tracker will show whose turn it is');
+}
+
+/* ============================== TRACKER TAB ============================== */
+function renderTrackerTab(){
+  if(!state.chores.some(c=>state.assignments[c.id])){
+    return `<div class="card empty"><h3>Nothing assigned yet</h3><p class="small">Vote on the head-to-heads and run the draft first — assigned chores will show up here to track.</p></div>`;
+  }
+  let html = `<div class="tracker-cols">`;
+  PEOPLE.forEach(person=>{
+    const mine = state.chores.filter(c=>{
+      const owner = state.assignments[c.id];
+      if(owner===person) return true;
+      if(owner==='Both') return true;
+      if(owner==='Switch') return currentSwitchHolder(c.id)===person;
+      return false;
+    });
+    const dueCount = mine.filter(c=>dueStatus(c).cls==='due').length;
+    html += `<div class="person-col ${person.toLowerCase()}">
+      <div class="person-head">
+        <h3>${person}</h3>
+        <span class="mono small">${dueCount} due &middot; ${fmtPts(personTotal(person))} pts</span>
+      </div>`;
+    if(!mine.length){
+      html += `<p class="muted small">No chores assigned yet.</p>`;
+    }
+    mine.sort((a,b)=> (dueStatus(a).cls==='due'?0:1) - (dueStatus(b).cls==='due'?0:1));
+    mine.forEach(c=>{
+      const ds = dueStatus(c);
+      const done = completedToday(c.id);
+      const sw = todaysSwitchFor(c.id);
+      const owner = state.assignments[c.id];
+      const modeTag = owner==='Both' ? `<span class="pill owner-both">Shared</span>`
+                    : owner==='Switch' ? `<span class="pill owner-switch">Alternating</span>` : '';
+      html += `<div class="tchore">
+        <div class="tchore-top">
+          <div><span class="status-dot ${ds.cls}"></span><strong>${c.name}</strong> ${modeTag}</div>
+          <button class="check-btn ${done?'checked':''}" onclick="toggleComplete('${c.id}')">${done?'Done today ✓':'Mark done'}</button>
+        </div>
+        <div class="muted small" style="margin-top:4px;">${CADENCE[c.cadence].label}${c.notes?` &middot; ${c.notes}`:''}</div>
+        ${sw ? `<div class="switch-row" style="color:var(--gold);font-weight:600;">Today ${sw.to} is covering this for ${sw.from}${sw.note?` — ${sw.note}`:''}</div>` : ''}
+        ${owner===person ? renderSwitchRow(c, person) : ''}
+      </div>`;
+    });
+    html += `</div>`;
+  });
+  html += `</div>`;
+  return html;
+}
+function renderSwitchRow(chore, person){
+  const cfg = state.choreSwitchConfig[chore.id];
+  if(!cfg || !cfg.enabled) return '';
+  const remaining = (cfg.perMonth||2) - switchesThisMonth(person);
+  return `<div class="switch-row">
+    <span>${remaining} switch${remaining===1?'':'es'} left this month</span>
+    <button class="btn ghost small" ${remaining<=0 || currentUser!==person ? 'disabled':''} onclick="openSwitch('${chore.id}')">Request switch</button>
+  </div>`;
+}
+function openSwitch(choreId){
+  if(!currentUser){ toast('Pick who you are first'); return; }
+  const owner = state.assignments[choreId];
+  if(currentUser !== owner){ toast('Only the current owner can request a switch'); return; }
+  const date = prompt('Cover for which date? (YYYY-MM-DD, give advance notice)', todayISO());
+  if(!date) return;
+  const note = prompt('Any note for the switch? (optional)') || '';
+  mutate(()=>{
+    state.switches.push({id:'s'+Date.now(), choreId, date, from:owner, to:otherPerson(owner), note, requestedBy:owner, requestedAt:new Date().toISOString()});
+  });
+  toast('Switch logged');
+}
+function toggleComplete(choreId){
+  if(!currentUser){ toast('Pick who you are first so we know who to credit'); return; }
+  mutate(()=>{
+    const today = todayISO();
+    const idx = state.completions.findIndex(e=>e.choreId===choreId && e.date===today);
+    if(idx>=0){ state.completions.splice(idx,1); }
+    else { state.completions.push({choreId, date:today, by:currentUser}); }
+  });
+}
+
+async function retryStorage(){
+  toast('Trying again…');
+  await saveState();
+  render();
+}
+
+/* ============================== BOOT ============================== */
+loadState();
+</script>
+</body>
+</html>
