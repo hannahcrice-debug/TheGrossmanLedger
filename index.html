@@ -255,6 +255,8 @@ select,input[type=text],input[type=date],textarea{
   align-items:center;gap:12px;flex-wrap:wrap;
 }
 .storage-banner button{background:#F3D9CE;color:#3A1F1A;border:none;border-radius:6px;padding:6px 12px;font-weight:600;font-size:12.5px;}
+.storage-banner.local{background:#3E3416;color:#F0E4C8;border-color:#8A6412;}
+.storage-banner.local button{background:#F0E4C8;color:#3E3416;}
 </style>
 </head>
 <body>
@@ -484,53 +486,103 @@ let editingPairId = null; // session only, not persisted
 function escAttr(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 const STORE_KEY = 'grossman-ledger-state-v1';
 
-let storageHealthy = true;
+let usingMemoryFallback = false; // true = window.storage unreachable, working in this tab only
+const memoryStore = {};
+
+function hasRealStorage(){
+  return typeof window !== 'undefined' && window.storage
+    && typeof window.storage.get === 'function' && typeof window.storage.set === 'function';
+}
+async function storageGetRaw(key){
+  if(hasRealStorage()){
+    const res = await window.storage.get(key, true);
+    return (res && res.value) ? res.value : null;
+  }
+  return memoryStore[key] || null;
+}
+async function storageSetRaw(key, value){
+  if(hasRealStorage()){
+    await window.storage.set(key, value, true);
+    return;
+  }
+  memoryStore[key] = value;
+}
+
 async function withRetry(fn, attempts){
   attempts = attempts || 3;
   let lastErr;
   for(let i=0;i<attempts;i++){
     try{ return await fn(); }
-    catch(e){ lastErr = e; if(i<attempts-1) await new Promise(r=>setTimeout(r, 400*(i+1))); }
+    catch(e){ lastErr = e; if(i<attempts-1) await new Promise(r=>setTimeout(r, 500*(i+1))); }
   }
   throw lastErr;
 }
 async function loadState(){
+  // Reading is best-effort: a brand-new save (nothing stored yet) is expected
+  // to fail/throw on first-ever use and is NOT a real storage problem —
+  // only a failed SAVE below counts as "storage isn't working."
+  let raw = null;
   try{
-    const res = await withRetry(()=>window.storage.get(STORE_KEY, true));
-    if(res && res.value){
-      state = JSON.parse(res.value);
-      runMigrations();
-    } else {
-      state = defaultState();
-      runMigrations();
-      await saveState(true);
-    }
+    raw = await withRetry(()=>storageGetRaw(STORE_KEY), 5);
   }catch(e){
-    console.error('load failed after retries, using defaults', e);
+    console.warn('no existing saved state yet (or a read hiccup) — starting fresh', e);
+  }
+
+  if(raw){
+    try{ state = JSON.parse(raw); }
+    catch(e){ console.error('saved state was corrupted, starting fresh', e); state = defaultState(); }
+  } else {
     state = defaultState();
-    runMigrations();
-    storageHealthy = false;
-    try{
-      await withRetry(()=>window.storage.set(STORE_KEY, JSON.stringify(state), true));
-      storageHealthy = true;
-    }catch(e2){
-      console.error('save failed too', e2);
-    }
+  }
+  runMigrations();
+  render();
+
+  try{
+    await withRetry(()=>storageSetRaw(STORE_KEY, JSON.stringify(state)), 5);
+    usingMemoryFallback = false;
+  }catch(e){
+    console.error('save failed — falling back to in-tab memory only', e);
+    usingMemoryFallback = true;
+    memoryStore[STORE_KEY] = JSON.stringify(state);
   }
   render();
-  saveState(true);
+  startAutoReconnect();
+}
+let saveDebounceTimer = null;
+function scheduleSave(){
+  clearTimeout(saveDebounceTimer);
+  saveDebounceTimer = setTimeout(()=>{ saveState(true); }, 500);
 }
 async function saveState(silent){
   try{
-    await withRetry(()=>window.storage.set(STORE_KEY, JSON.stringify(state), true));
-    storageHealthy = true;
-    if(!silent) toast('Saved');
+    await withRetry(()=>storageSetRaw(STORE_KEY, JSON.stringify(state)));
+    if(usingMemoryFallback){
+      usingMemoryFallback = false;
+      toast('Back in sync — changes are saving normally again');
+      render();
+    } else if(!silent){
+      toast('Saved');
+    }
   }catch(e){
     console.error('save error after retries', e);
-    storageHealthy = false;
-    toast('Not saving right now — see banner up top');
-    render();
+    if(!usingMemoryFallback){
+      usingMemoryFallback = true;
+      memoryStore[STORE_KEY] = JSON.stringify(state);
+      toast('Not saving right now — see banner up top');
+      render();
+    } else {
+      memoryStore[STORE_KEY] = JSON.stringify(state); // at least keep this tab consistent
+    }
   }
+}
+let reconnectTimer = null;
+function startAutoReconnect(){
+  if(reconnectTimer) return;
+  reconnectTimer = setInterval(()=>{
+    if(usingMemoryFallback && hasRealStorage()){
+      saveState(true);
+    }
+  }, 10000);
 }
 function toast(msg){
   const t = document.getElementById('toast');
@@ -542,7 +594,7 @@ function toast(msg){
 async function mutate(fn){
   fn();
   render();
-  await saveState(true);
+  scheduleSave();
 }
 
 /* ============================== HELPERS ============================== */
@@ -608,12 +660,26 @@ function switchesThisMonth(person, choreId){
   const mk = monthKey(todayISO());
   return state.switches.filter(s=> s.requestedBy===person && monthKey(s.date)===mk && (!choreId || s.choreId===choreId)).length;
 }
+function isSharedChore(choreId){ return state.assignments[choreId] === 'Both'; }
+function fullyDoneOn(choreId, date){
+  const entries = state.completions.filter(e=>e.choreId===choreId && e.date===date);
+  const people = new Set(entries.map(e=>e.by));
+  return people.has('Hannah') && people.has('Trent');
+}
 function lastCompletion(choreId){
+  if(isSharedChore(choreId)){
+    const dates = [...new Set(state.completions.filter(e=>e.choreId===choreId).map(e=>e.date))].sort((a,b)=>b.localeCompare(a));
+    for(const d of dates){ if(fullyDoneOn(choreId, d)) return {date:d}; }
+    return null;
+  }
   const entries = state.completions.filter(e=>e.choreId===choreId).sort((a,b)=>b.date.localeCompare(a.date));
   return entries[0] || null;
 }
 function completedToday(choreId){
   return state.completions.some(e=>e.choreId===choreId && e.date===todayISO());
+}
+function completedTodayBy(choreId, person){
+  return state.completions.some(e=>e.choreId===choreId && e.date===todayISO() && e.by===person);
 }
 function dueStatus(chore){
   const days = CADENCE_DUE_DAYS[chore.cadence];
@@ -627,21 +693,27 @@ function dueStatus(chore){
 function todaysSwitchFor(choreId){
   return state.switches.find(s=>s.choreId===choreId && s.date===todayISO());
 }
+function addDaysISO(iso, delta){
+  const d = new Date(iso+'T00:00:00');
+  d.setDate(d.getDate()+delta);
+  return d.toISOString().slice(0,10);
+}
 
 /* ============================== RENDER: SHELL ============================== */
 function render(){
   const app = document.getElementById('app');
   app.innerHTML = `
-    ${storageHealthy ? '' : `<div class="storage-banner">
-      <span>⚠️ Changes aren't saving right now (storage error). Keep going if you want, but reload once this clears so nothing gets lost — and don't count on the other person seeing your picks yet.</span>
-      <button onclick="retryStorage()">Try saving again</button>
-    </div>`}
+    ${usingMemoryFallback ? `<div class="storage-banner">
+      <span>⚠️ Not reaching shared storage right now — your changes are only sticking around in this browser tab and will disappear if you reload or close it. ${otherPerson(currentUser||'Hannah')} won't see them either. Retrying automatically in the background.</span>
+      <button onclick="retryStorage()">Try now</button>
+    </div>` : ''}
     ${renderHeader()}
     <div class="tabs">
       ${tabBtn('chores','Chores', state.chores.length)}
       ${tabBtn('pairs','Pairs & Voting', state.pairs.filter(p=>pairStatus(p)==='pending').length, true)}
       ${tabBtn('draft','Draft', draftPool().length, true)}
       ${tabBtn('tracker','Tracker')}
+      ${tabBtn('history','History')}
     </div>
     <div id="tab-content">${renderTab()}</div>
     <div class="footer-note muted small">The Grossman Ledger &middot; weight = annoyance &times; frequency &middot; everything below is yours to edit</div>
@@ -721,6 +793,7 @@ function renderTab(){
   if(activeTab==='pairs') return renderPairsTab();
   if(activeTab==='draft') return renderDraftTab();
   if(activeTab==='tracker') return renderTrackerTab();
+  if(activeTab==='history') return renderHistoryTab();
   return '';
 }
 
@@ -1336,17 +1409,25 @@ function renderTrackerTab(){
     mine.sort((a,b)=> (dueStatus(a).cls==='due'?0:1) - (dueStatus(b).cls==='due'?0:1));
     mine.forEach(c=>{
       const ds = dueStatus(c);
-      const done = completedToday(c.id);
-      const sw = todaysSwitchFor(c.id);
       const owner = state.assignments[c.id];
+      const shared = owner==='Both';
+      const done = shared ? completedTodayBy(c.id, person) : completedToday(c.id);
+      const canToggle = !shared || currentUser===person;
+      const sw = todaysSwitchFor(c.id);
       const modeTag = owner==='Both' ? `<span class="pill owner-both">Shared</span>`
                     : owner==='Switch' ? `<span class="pill owner-switch">Alternating</span>` : '';
+      const partnerNote = shared ? (() => {
+        const partner = otherPerson(person);
+        const partnerDone = completedTodayBy(c.id, partner);
+        return `<div class="muted small" style="margin-top:4px;">${partner} ${partnerDone ? 'has done their half today ✓' : "hasn't marked their half yet"}</div>`;
+      })() : '';
       html += `<div class="tchore">
         <div class="tchore-top">
           <div><span class="status-dot ${ds.cls}"></span><strong>${escAttr(c.name)}</strong> ${modeTag}</div>
-          <button class="check-btn ${done?'checked':''}" onclick="toggleComplete('${c.id}')">${done?'Done today ✓':'Mark done'}</button>
+          <button class="check-btn ${done?'checked':''}" ${canToggle?'':'disabled'} title="${canToggle?'':`Only ${person} can mark ${person}'s half`}" onclick="toggleComplete('${c.id}')">${done?'Done today ✓':'Mark done'}</button>
         </div>
         <div class="muted small" style="margin-top:4px;">${CADENCE[c.cadence].label}${c.notes?` &middot; ${escAttr(c.notes)}`:''}</div>
+        ${partnerNote}
         ${sw ? `<div class="switch-row" style="color:var(--gold);font-weight:600;">Today ${sw.to} is covering this for ${sw.from}${sw.note?` — ${escAttr(sw.note)}`:''}</div>` : ''}
         ${owner===person ? renderSwitchRow(c, person) : ''}
       </div>`;
@@ -1364,6 +1445,68 @@ function renderSwitchRow(chore, person){
     <span>${remaining} switch${remaining===1?'':'es'} left this month</span>
     <button class="btn ghost small" ${remaining<=0 || currentUser!==person ? 'disabled':''} onclick="openSwitch('${chore.id}')">Request switch</button>
   </div>`;
+}
+
+/* ============================== HISTORY TAB ============================== */
+function renderHistoryTab(){
+  if(!state.completions.length){
+    return `<div class="card empty"><h3>No history yet</h3><p class="small">Once chores start getting marked done in the Tracker, the pattern shows up here.</p></div>`;
+  }
+  const today = todayISO();
+  const since7 = addDaysISO(today, -6);
+  const since30 = addDaysISO(today, -29);
+  const countSince = (person, sinceDate) => state.completions.filter(e=>e.by===person && e.date>=sinceDate).length;
+
+  let html = `<div class="card">
+    <h3>Who's been keeping up</h3>
+    <div style="display:flex;gap:32px;flex-wrap:wrap;margin-top:10px;">
+      <div>
+        <div class="offer-col-label">Hannah</div>
+        <div class="mono" style="font-size:22px;font-weight:600;">${countSince('Hannah',since7)} <span class="muted small" style="font-size:12px;font-weight:400;">last 7 days</span></div>
+        <div class="muted small">${countSince('Hannah',since30)} in the last 30 days</div>
+      </div>
+      <div>
+        <div class="offer-col-label">Trent</div>
+        <div class="mono" style="font-size:22px;font-weight:600;">${countSince('Trent',since7)} <span class="muted small" style="font-size:12px;font-weight:400;">last 7 days</span></div>
+        <div class="muted small">${countSince('Trent',since30)} in the last 30 days</div>
+      </div>
+    </div>
+  </div>`;
+
+  const sharedOrSwitch = state.chores.filter(c=>['Both','Switch'].includes(state.assignments[c.id]));
+  if(sharedOrSwitch.length){
+    html += `<div class="card">
+      <h3>Balance check — shared &amp; alternating chores</h3>
+      <p class="muted small">Who's actually completed each one over the last 30 days. A lopsided split is easy to miss day-to-day but shows up here.</p>`;
+    sharedOrSwitch.forEach(c=>{
+      const h = state.completions.filter(e=>e.choreId===c.id && e.by==='Hannah' && e.date>=since30).length;
+      const t = state.completions.filter(e=>e.choreId===c.id && e.by==='Trent' && e.date>=since30).length;
+      const lopsided = Math.abs(h-t)>=3 || (h===0 && t>=2) || (t===0 && h>=2);
+      html += `<div class="chore-row" style="grid-template-columns:1.6fr auto;">
+        <div>
+          <div class="chore-name">${escAttr(c.name)}</div>
+          <div class="chore-details">${state.assignments[c.id]==='Both'?'Shared':'Alternating'}</div>
+        </div>
+        <div class="mono" style="${lopsided?'color:var(--danger);font-weight:700;':''}">Hannah ${h} &middot; Trent ${t}${lopsided?' ⚠️':''}</div>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  html += `<div class="card"><h3>Activity log</h3>`;
+  const sorted = state.completions.slice().sort((a,b)=> b.date.localeCompare(a.date) || String(b.at||'').localeCompare(String(a.at||'')));
+  let lastDate = null;
+  sorted.slice(0,60).forEach(e=>{
+    const c = choreById(e.choreId);
+    if(e.date !== lastDate){
+      html += `<div class="mono small" style="margin:12px 0 4px;color:var(--ink-soft);">${fmtDate(e.date)}${e.date===today?' (today)':''}</div>`;
+      lastDate = e.date;
+    }
+    html += `<div class="pick-log-row"><span>${c?escAttr(c.name):'(removed chore)'}</span><span class="pill owner-${String(e.by||'').toLowerCase()}">${e.by}</span></div>`;
+  });
+  if(sorted.length>60) html += `<p class="muted small" style="margin-top:8px;">Showing the most recent 60 entries.</p>`;
+  html += `</div>`;
+  return html;
 }
 function openSwitch(choreId){
   if(!currentUser){ toast('Pick who you are first'); return; }
@@ -1396,9 +1539,10 @@ function toggleComplete(choreId){
   if(!currentUser){ toast('Pick who you are first so we know who to credit'); return; }
   mutate(()=>{
     const today = todayISO();
-    const idx = state.completions.findIndex(e=>e.choreId===choreId && e.date===today);
+    const shared = isSharedChore(choreId);
+    const idx = state.completions.findIndex(e=>e.choreId===choreId && e.date===today && (shared ? e.by===currentUser : true));
     if(idx>=0){ state.completions.splice(idx,1); }
-    else { state.completions.push({choreId, date:today, by:currentUser}); }
+    else { state.completions.push({choreId, date:today, by:currentUser, at:new Date().toISOString()}); }
   });
 }
 
