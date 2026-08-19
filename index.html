@@ -37,7 +37,7 @@ button{font-family:'Inter',sans-serif;cursor:pointer;}
 :focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
 @media (prefers-reduced-motion:reduce){*{transition:none !important;animation:none !important;}}
 
-.app{max-width:980px;margin:0 auto;padding:20px 18px 80px;}
+.app{max-width:980px;margin:0 auto;padding:20px 18px 80px;overflow-x:hidden;}
 
 /* ---------- Header / Ledger band ---------- */
 .ledger-band{
@@ -71,7 +71,7 @@ button{font-family:'Inter',sans-serif;cursor:pointer;}
 
 /* Fairness beam */
 .beam-wrap{display:flex;align-items:center;gap:22px;margin-top:18px;flex-wrap:wrap;}
-.beam-svg{flex:0 0 auto;}
+.beam-svg{flex:0 1 320px;width:100%;max-width:320px;height:auto;min-width:0;}
 .beam-readout{display:flex;gap:22px;flex-wrap:wrap;}
 .beam-stat{min-width:120px;}
 .beam-stat .name{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#9FB0A9;}
