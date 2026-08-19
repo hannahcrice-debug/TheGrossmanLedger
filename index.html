@@ -709,11 +709,11 @@ function render(){
     </div>` : ''}
     ${renderHeader()}
     <div class="tabs">
+      ${tabBtn('tracker','Tracker')}
       ${tabBtn('chores','Chores', state.chores.length)}
+      ${tabBtn('history','History')}
       ${tabBtn('pairs','Pairs & Voting', state.pairs.filter(p=>pairStatus(p)==='pending').length, true)}
       ${tabBtn('draft','Draft', draftPool().length, true)}
-      ${tabBtn('tracker','Tracker')}
-      ${tabBtn('history','History')}
     </div>
     <div id="tab-content">${renderTab()}</div>
     <div class="footer-note muted small">The Grossman Ledger &middot; weight = annoyance &times; frequency &middot; everything below is yours to edit</div>
