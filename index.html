@@ -498,13 +498,35 @@ const memoryStore = {};
 // re-entered per session/device. Owner/repo/path are not secret, so they're
 // kept as simple defaults that can be changed from the "Connect GitHub" box.
 let gh = {
-  token: null,           // never persisted, never sent anywhere but api.github.com
+  token: null,
   owner: 'hannahcrice-debug',
   repo: 'TheGrossmanLedger',
   path: 'data.json',
   branch: 'main',
   sha: null,              // tracks the file's current version for safe writes
 };
+const GH_STORE_KEY = 'grossman-ledger-github-config';
+function saveGhToBrowser(){
+  // Only works when this page is hosted on its own (GitHub Pages, Netlify, etc.) —
+  // inside a Claude artifact sandbox this silently no-ops instead of throwing.
+  try{
+    localStorage.setItem(GH_STORE_KEY, JSON.stringify({
+      owner: gh.owner, repo: gh.repo, path: gh.path, branch: gh.branch, token: gh.token,
+    }));
+  }catch(e){ /* not available here — that's fine, just re-enter it next time */ }
+}
+function loadGhFromBrowser(){
+  try{
+    const raw = localStorage.getItem(GH_STORE_KEY);
+    if(!raw) return;
+    const saved = JSON.parse(raw);
+    Object.assign(gh, saved);
+  }catch(e){ /* not available or nothing saved yet — stick with defaults */ }
+}
+function clearGhFromBrowser(){
+  try{ localStorage.removeItem(GH_STORE_KEY); }catch(e){ /* nothing to clear */ }
+}
+loadGhFromBrowser();
 function ghConfigured(){ return !!(gh.token && gh.owner && gh.repo && gh.path); }
 function utf8ToBase64(str){
   const bytes = new TextEncoder().encode(str);
@@ -782,6 +804,9 @@ function render(){
     </div>
     <div id="tab-content">${renderTab()}</div>
     <div class="footer-note muted small">The Grossman Ledger &middot; weight = annoyance &times; frequency &middot; everything below is yours to edit</div>
+    <div class="footer-note">
+      <button class="btn ghost small" title="${ghConfigured()?'Connected to GitHub — click to change or disconnect':'Connect GitHub as a storage backend'}" onclick="openGithubSettings()">${ghConfigured()?'🐙 Connected to GitHub':'🐙 Connect GitHub'}</button>
+    </div>
     ${modal ? renderModal() : ''}
   `;
 }
@@ -830,7 +855,6 @@ function renderHeader(){
         <button class="who-btn hannah ${currentUser==='Hannah'?'active':''}" onclick="setUser('Hannah')">Hannah</button>
         <button class="who-btn trent ${currentUser==='Trent'?'active':''}" onclick="setUser('Trent')">Trent</button>
         <button class="who-btn" title="Pull the latest saved changes — there's no live sync between devices" onclick="refreshFromStorage()">↻</button>
-        <button class="who-btn" title="${ghConfigured()?'Connected to GitHub — click to change or disconnect':'Connect GitHub as a storage backend'}" onclick="openGithubSettings()">${ghConfigured()?'🐙 Connected':'🐙 Connect'}</button>
       </div>
     </div>
     <div class="last-saved">${lastSavedLabel()}</div>
@@ -1693,6 +1717,7 @@ async function saveGithubSettings(){
   if(!tokenInput && !gh.token){ toast('Paste your GitHub token'); return; }
   gh.owner = owner; gh.repo = repo; gh.path = path; gh.branch = branch; gh.sha = null;
   if(tokenInput) gh.token = tokenInput;
+  saveGhToBrowser();
   closeModal();
   toast('Connecting to GitHub…');
   await loadState();
@@ -1700,6 +1725,7 @@ async function saveGithubSettings(){
 }
 function disconnectGithub(){
   gh.token = null; gh.sha = null;
+  clearGhFromBrowser();
   closeModal();
   toast('Disconnected from GitHub — back to normal storage');
   loadState();
