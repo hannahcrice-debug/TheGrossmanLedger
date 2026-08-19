@@ -489,20 +489,81 @@ let editingPairId = null; // session only, not persisted
 function escAttr(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 const STORE_KEY = 'grossman-ledger-state-v1';
 
-let usingMemoryFallback = false; // true = window.storage unreachable, working in this tab only
+let usingMemoryFallback = false; // true = neither GitHub nor window.storage is reachable, working in this tab only
 let lastSavedAt = null; // Date of the last confirmed write to real shared storage
 const memoryStore = {};
+
+/* ---------- GitHub-backed storage (optional, session-only token) ---------- */
+// The token can't be persisted (artifacts can't use browser storage), so it's
+// re-entered per session/device. Owner/repo/path are not secret, so they're
+// kept as simple defaults that can be changed from the "Connect GitHub" box.
+let gh = {
+  token: null,           // never persisted, never sent anywhere but api.github.com
+  owner: 'hannahcrice-debug',
+  repo: 'TheGrossmanLedger',
+  path: 'data.json',
+  branch: 'main',
+  sha: null,              // tracks the file's current version for safe writes
+};
+function ghConfigured(){ return !!(gh.token && gh.owner && gh.repo && gh.path); }
+function utf8ToBase64(str){
+  const bytes = new TextEncoder().encode(str);
+  let binary = '';
+  bytes.forEach(b => binary += String.fromCharCode(b));
+  return btoa(binary);
+}
+function base64ToUtf8(b64){
+  const binary = atob(String(b64).replace(/\n/g,''));
+  const bytes = new Uint8Array(binary.length);
+  for(let i=0;i<binary.length;i++) bytes[i] = binary.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+async function ghFetch(url, options){
+  const res = await fetch(url, Object.assign({}, options, {
+    headers: Object.assign({
+      'Authorization': `Bearer ${gh.token}`,
+      'Accept': 'application/vnd.github+json',
+    }, (options && options.headers) || {}),
+  }));
+  return res;
+}
+async function ghGetRaw(){
+  const url = `https://api.github.com/repos/${gh.owner}/${gh.repo}/contents/${encodeURIComponent(gh.path)}?ref=${encodeURIComponent(gh.branch)}`;
+  const res = await ghFetch(url);
+  if(res.status===404){ gh.sha = null; return null; } // file doesn't exist yet — treat as empty
+  if(!res.ok) throw new Error(`GitHub read failed (${res.status})`);
+  const data = await res.json();
+  gh.sha = data.sha;
+  return base64ToUtf8(data.content);
+}
+async function ghSetRaw(value){
+  const url = `https://api.github.com/repos/${gh.owner}/${gh.repo}/contents/${encodeURIComponent(gh.path)}`;
+  const body = { message:'Update ledger data', content: utf8ToBase64(value), branch: gh.branch };
+  if(gh.sha) body.sha = gh.sha;
+  let res = await ghFetch(url, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  if(res.status===409 || res.status===422){
+    // our sha was stale — re-fetch the latest version and retry once
+    await ghGetRaw();
+    body.sha = gh.sha;
+    res = await ghFetch(url, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  }
+  if(!res.ok) throw new Error(`GitHub write failed (${res.status})`);
+  const data = await res.json();
+  gh.sha = data.content && data.content.sha;
+}
 
 function hasRealStorage(){
   return typeof window !== 'undefined' && window.storage
     && typeof window.storage.get === 'function' && typeof window.storage.set === 'function';
 }
 async function storageGetRaw(key){
+  if(ghConfigured()) return await ghGetRaw();
   if(!hasRealStorage()) throw new Error('window.storage unavailable');
   const res = await window.storage.get(key, true);
   return (res && res.value) ? res.value : null;
 }
 async function storageSetRaw(key, value){
+  if(ghConfigured()){ await ghSetRaw(value); return; }
   if(!hasRealStorage()) throw new Error('window.storage unavailable');
   await window.storage.set(key, value, true);
 }
@@ -529,7 +590,10 @@ async function loadState(){
   }
 
   if(raw){
-    try{ state = JSON.parse(raw); }
+    try{
+      const parsed = JSON.parse(raw);
+      state = (parsed && Array.isArray(parsed.chores)) ? parsed : defaultState();
+    }
     catch(e){ console.error('saved state was corrupted, starting fresh', e); state = defaultState(); }
   } else {
     state = defaultState();
@@ -766,6 +830,7 @@ function renderHeader(){
         <button class="who-btn hannah ${currentUser==='Hannah'?'active':''}" onclick="setUser('Hannah')">Hannah</button>
         <button class="who-btn trent ${currentUser==='Trent'?'active':''}" onclick="setUser('Trent')">Trent</button>
         <button class="who-btn" title="Pull the latest saved changes — there's no live sync between devices" onclick="refreshFromStorage()">↻</button>
+        <button class="who-btn" title="${ghConfigured()?'Connected to GitHub — click to change or disconnect':'Connect GitHub as a storage backend'}" onclick="openGithubSettings()">${ghConfigured()?'🐙 Connected':'🐙 Connect'}</button>
       </div>
     </div>
     <div class="last-saved">${lastSavedLabel()}</div>
@@ -1597,6 +1662,47 @@ async function retryStorage(){
 async function refreshFromStorage(){
   toast('Checking for updates…');
   await loadState();
+}
+function openGithubSettings(){
+  showModal('GitHub storage', `
+    <p class="small">Store the shared data as a JSON file in a GitHub repo instead of Claude's built-in storage. The token isn't saved anywhere persistent — you'll paste it in again next time you open this fresh.</p>
+    <label>Repo owner</label>
+    <input type="text" id="gh-owner" value="${escAttr(gh.owner)}" placeholder="e.g. hannahcrice-debug"/>
+    <label>Repo name</label>
+    <input type="text" id="gh-repo" value="${escAttr(gh.repo)}" placeholder="e.g. grossman-ledger-data"/>
+    <label>File path</label>
+    <input type="text" id="gh-path" value="${escAttr(gh.path)}" placeholder="data.json"/>
+    <label>Branch</label>
+    <input type="text" id="gh-branch" value="${escAttr(gh.branch)}" placeholder="main"/>
+    <label>Personal access token</label>
+    <input type="password" id="gh-token" value="" placeholder="${gh.token?'•••••••• (already set this session)':'github_pat_…'}"/>
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">
+      <button class="btn small" onclick="saveGithubSettings()">Connect</button>
+      ${ghConfigured() ? `<button class="btn ghost small" onclick="disconnectGithub()">Disconnect</button>` : ''}
+      <button class="btn ghost small" onclick="closeModal()">Cancel</button>
+    </div>
+  `);
+}
+async function saveGithubSettings(){
+  const owner = document.getElementById('gh-owner').value.trim();
+  const repo = document.getElementById('gh-repo').value.trim();
+  const path = document.getElementById('gh-path').value.trim() || 'data.json';
+  const branch = document.getElementById('gh-branch').value.trim() || 'main';
+  const tokenInput = document.getElementById('gh-token').value.trim();
+  if(!owner || !repo){ toast('Enter both the repo owner and repo name'); return; }
+  if(!tokenInput && !gh.token){ toast('Paste your GitHub token'); return; }
+  gh.owner = owner; gh.repo = repo; gh.path = path; gh.branch = branch; gh.sha = null;
+  if(tokenInput) gh.token = tokenInput;
+  closeModal();
+  toast('Connecting to GitHub…');
+  await loadState();
+  toast(ghConfigured() && !usingMemoryFallback ? 'Connected — now saving to GitHub' : 'Could not reach that repo — check the details and token');
+}
+function disconnectGithub(){
+  gh.token = null; gh.sha = null;
+  closeModal();
+  toast('Disconnected from GitHub — back to normal storage');
+  loadState();
 }
 
 /* ============================== BOOT ============================== */
