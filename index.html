@@ -54,6 +54,7 @@ button{font-family:'Inter',sans-serif;cursor:pointer;}
 .ledger-sub{font-size:12.5px;color:#B9C7C1;margin-top:4px;letter-spacing:.02em;}
 .who-switch{display:flex;gap:8px;align-items:center;}
 .who-switch span{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#9FB0A9;margin-right:2px;}
+.last-saved{text-align:right;font-size:11px;color:#9FB0A9;margin-top:4px;}
 .who-btn{
   border:1.5px solid rgba(255,255,255,0.25);
   background:transparent;
@@ -133,6 +134,7 @@ button{font-family:'Inter',sans-serif;cursor:pointer;}
 .pill.owner-trent{background:var(--trent-soft);color:var(--trent);}
 .pill.owner-both{background:#E4DEC7;color:#5A5236;}
 .pill.owner-switch{background:#F0E4D2;color:#8A6412;}
+.pill.max-pill{background:var(--danger);color:#fff;}
 .pill.owner-none{background:#E4DEC7;color:var(--ink-soft);}
 select,input[type=text],input[type=date],textarea{
   font-family:'Inter',sans-serif;
@@ -145,6 +147,7 @@ select,input[type=text],input[type=date],textarea{
   width:100%;
 }
 .total-chip{font-family:'IBM Plex Mono',monospace;font-weight:600;background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:4px 8px;text-align:center;}
+.total-chip.chip-max{background:var(--danger);color:#fff;border-color:var(--danger);}
 .btn{
   border:none;border-radius:7px;padding:8px 14px;font-size:13px;font-weight:600;
   background:var(--ink);color:var(--paper);
@@ -487,6 +490,7 @@ function escAttr(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;
 const STORE_KEY = 'grossman-ledger-state-v1';
 
 let usingMemoryFallback = false; // true = window.storage unreachable, working in this tab only
+let lastSavedAt = null; // Date of the last confirmed write to real shared storage
 const memoryStore = {};
 
 function hasRealStorage(){
@@ -494,18 +498,13 @@ function hasRealStorage(){
     && typeof window.storage.get === 'function' && typeof window.storage.set === 'function';
 }
 async function storageGetRaw(key){
-  if(hasRealStorage()){
-    const res = await window.storage.get(key, true);
-    return (res && res.value) ? res.value : null;
-  }
-  return memoryStore[key] || null;
+  if(!hasRealStorage()) throw new Error('window.storage unavailable');
+  const res = await window.storage.get(key, true);
+  return (res && res.value) ? res.value : null;
 }
 async function storageSetRaw(key, value){
-  if(hasRealStorage()){
-    await window.storage.set(key, value, true);
-    return;
-  }
-  memoryStore[key] = value;
+  if(!hasRealStorage()) throw new Error('window.storage unavailable');
+  await window.storage.set(key, value, true);
 }
 
 async function withRetry(fn, attempts){
@@ -525,7 +524,8 @@ async function loadState(){
   try{
     raw = await withRetry(()=>storageGetRaw(STORE_KEY), 5);
   }catch(e){
-    console.warn('no existing saved state yet (or a read hiccup) — starting fresh', e);
+    console.warn('could not reach shared storage — checking in-tab memory instead', e);
+    raw = memoryStore[STORE_KEY] || null;
   }
 
   if(raw){
@@ -540,6 +540,7 @@ async function loadState(){
   try{
     await withRetry(()=>storageSetRaw(STORE_KEY, JSON.stringify(state)), 5);
     usingMemoryFallback = false;
+    lastSavedAt = new Date();
   }catch(e){
     console.error('save failed — falling back to in-tab memory only', e);
     usingMemoryFallback = true;
@@ -548,21 +549,21 @@ async function loadState(){
   render();
   startAutoReconnect();
 }
-let saveDebounceTimer = null;
-function scheduleSave(){
-  clearTimeout(saveDebounceTimer);
-  saveDebounceTimer = setTimeout(()=>{ saveState(true); }, 500);
-}
 async function saveState(silent){
   try{
     await withRetry(()=>storageSetRaw(STORE_KEY, JSON.stringify(state)));
+    lastSavedAt = new Date();
     if(usingMemoryFallback){
       usingMemoryFallback = false;
       toast('Back in sync — changes are saving normally again');
       render();
     } else if(!silent){
       toast('Saved');
+      render();
     }
+    // (silent, already-synced saves don't force a re-render — avoids interrupting
+    // anything the user might be mid-typing elsewhere; the header timestamp catches
+    // up on the next natural render)
   }catch(e){
     console.error('save error after retries', e);
     if(!usingMemoryFallback){
@@ -594,12 +595,12 @@ function toast(msg){
 async function mutate(fn){
   fn();
   render();
-  scheduleSave();
+  await saveState(true);
 }
 
 /* ============================== HELPERS ============================== */
 function choreById(id){ return state.chores.find(c=>c.id===id); }
-function choreTotal(c){ return c.annoyance * CADENCE[c.cadence].weight; }
+function choreTotal(c){ return (c.dreadOverride!=null) ? c.dreadOverride : c.annoyance * CADENCE[c.cadence].weight; }
 function otherPerson(p){ return p==='Hannah' ? 'Trent' : 'Hannah'; }
 function todayISO(){ return new Date().toISOString().slice(0,10); }
 function daysBetween(a,b){ return Math.floor((new Date(b) - new Date(a)) / 86400000); }
@@ -738,6 +739,12 @@ function tabBtn(id,label,badge,onlyIfPositive){
 function setTab(id){ activeTab=id; render(); }
 function setUser(p){ currentUser = currentUser===p ? null : p; render(); }
 
+function fmtTime(d){ return d.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}); }
+function lastSavedLabel(){
+  if(usingMemoryFallback) return '⚠️ Not saving to shared storage right now';
+  if(!lastSavedAt) return 'Not saved yet';
+  return `Last saved ${fmtTime(lastSavedAt)}`;
+}
 function renderHeader(){
   const hTotal = personTotal('Hannah');
   const tTotal = personTotal('Trent');
@@ -761,6 +768,7 @@ function renderHeader(){
         <button class="who-btn" title="Pull the latest saved changes — there's no live sync between devices" onclick="refreshFromStorage()">↻</button>
       </div>
     </div>
+    <div class="last-saved">${lastSavedLabel()}</div>
     <div class="beam-wrap">
       <svg class="beam-svg" width="420" height="120" viewBox="0 0 420 120">
         <polygon points="200,90 220,90 210,66" fill="#3C524B"/>
@@ -851,15 +859,16 @@ function renderChoresTab(){
       }
       html += `<div class="chore-row">
         <div>
-          <div class="chore-name">${escAttr(c.name)}</div>
+          <div class="chore-name">${escAttr(c.name)}${c.dreadOverride!=null?` <span class="pill max-pill">🔥 Max — ${c.dreadOverride} pts</span>`:''}</div>
           <div class="chore-details">${escAttr(c.details||'')}${c.notes?` &middot; ${escAttr(c.notes)}`:''}</div>
         </div>
         <div><select onchange="editChore('${c.id}','annoyance',this.value)">${[1,2,3,4].map(n=>`<option value="${n}" ${c.annoyance==n?'selected':''}>${n} — ${ANNOYANCE_LABELS[n]}</option>`).join('')}</select></div>
         <div><select onchange="editChore('${c.id}','cadence',this.value)">${Object.keys(CADENCE).map(k=>`<option value="${k}" ${c.cadence===k?'selected':''}>${CADENCE[k].label}</option>`).join('')}</select></div>
-        <div class="total-chip">${choreTotal(c)} pts</div>
+        <div class="total-chip ${c.dreadOverride!=null?'chip-max':''}">${choreTotal(c)} pts</div>
         <div>${ownerPill(c.id)}</div>
         <div style="text-align:right;">
           <button class="icon-btn" title="Edit name & details" onclick="startEditChore('${c.id}')">✎</button>
+          <button class="icon-btn" title="${c.dreadOverride!=null?'Change or clear max-annoyance override':'Set as a max-annoyance chore (fixed high point value)'}" onclick="setDreadOverride('${c.id}')">🔥</button>
           <button class="icon-btn" title="Send straight to the draft pool" onclick="sendToDraft('${c.id}')">⇥</button>
           <button class="icon-btn" title="Mark as shared — both of you do it" onclick="assignBoth('${c.id}')">🤝</button>
           <button class="icon-btn" title="Alternate between you two" onclick="assignSwitchOff('${c.id}')">🔁</button>
@@ -910,6 +919,40 @@ function saveEditChore(id){
   });
   editingChoreId = null;
   render();
+}
+function setDreadOverride(choreId){
+  const c = choreById(choreId);
+  if(!c) return;
+  showModal('Max-annoyance override', `
+    <p class="small">Give "${escAttr(c.name)}" a fixed point value instead of annoyance &times; cadence — for the chores nobody wants no matter how often they come up (cleaning a million bird cages, say). A high enough number makes it a genuine trade on its own, not something a few small chores can casually offset.</p>
+    <label>Override points (blank turns it off)</label>
+    <input type="text" id="do-value" value="${c.dreadOverride!=null ? c.dreadOverride : ''}" placeholder="e.g. 25 — normal chores top out around 20"/>
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">
+      <button class="btn small" onclick="saveDreadOverride('${choreId}')">Save</button>
+      ${c.dreadOverride!=null ? `<button class="btn ghost small" onclick="clearDreadOverride('${choreId}')">Clear override</button>` : ''}
+      <button class="btn ghost small" onclick="closeModal()">Cancel</button>
+    </div>
+  `);
+}
+function saveDreadOverride(choreId){
+  const raw = document.getElementById('do-value').value.trim();
+  if(raw===''){ clearDreadOverride(choreId); return; }
+  const val = Math.round(Number(raw));
+  if(isNaN(val) || val<=0){ toast('Enter a positive number, or leave it blank to turn the override off'); return; }
+  mutate(()=>{
+    const c = choreById(choreId);
+    if(c) c.dreadOverride = val;
+  });
+  closeModal();
+  toast(`Max-annoyance set — this chore is now worth ${val} pts no matter what`);
+}
+function clearDreadOverride(choreId){
+  mutate(()=>{
+    const c = choreById(choreId);
+    if(c) delete c.dreadOverride;
+  });
+  closeModal();
+  toast('Override cleared — back to annoyance × cadence');
 }
 function sendToDraft(choreId){
   mutate(()=>{ freeChoreFromPairOrAssignment(choreId); });
@@ -1004,7 +1047,7 @@ function renderPairCard(pair){
   const optCard = (chore, side) => {
     const myPick = currentUser && v[currentUser] === chore.id;
     return `<div class="vote-opt ${myPick?'picked':''}">
-      <div class="vname">${escAttr(chore.name)}</div>
+      <div class="vname">${escAttr(chore.name)}${chore.dreadOverride!=null?` <span class="pill max-pill">🔥 ${chore.dreadOverride}</span>`:''}</div>
       <div class="vdet">${escAttr(chore.details||'')}${chore.notes?` &middot; ${escAttr(chore.notes)}`:''}</div>
       <div class="mono small" style="margin-top:6px;">${choreTotal(chore)} pts &middot; ${CADENCE[chore.cadence].label}</div>
       ${status==='pending' ? `<div style="margin-top:8px;"><button class="btn small ${currentUser==='Hannah'?'hannah':currentUser==='Trent'?'trent':''}" ${!currentUser?'disabled':''} onclick="castVote('${pair.id}','${chore.id}')">${myPick?'Picked ✓':'Choose this'}</button></div>` : ''}
@@ -1178,7 +1221,7 @@ function renderDraftTab(){
     html += `<div class="pool-grid">`;
     pool.forEach(c=>{
       html += `<div class="pool-card">
-        <div class="pname">${escAttr(c.name)}</div>
+        <div class="pname">${escAttr(c.name)}${c.dreadOverride!=null?` <span class="pill max-pill">🔥 ${c.dreadOverride}</span>`:''}</div>
         <div class="pmeta">${c.category} &middot; ${CADENCE[c.cadence].label} &middot; ${choreTotal(c)} pts</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
           <button class="btn small ${turn==='Hannah'?'hannah':'trent'}" ${canPick?'':'disabled'} onclick="draftPick('${c.id}')">Take it</button>
